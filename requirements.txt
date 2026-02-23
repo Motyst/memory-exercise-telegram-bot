@@ -1,0 +1,12 @@
+# Telegram Bot
+python-telegram-bot[all]==21.3
+
+# Database
+sqlalchemy==2.0.30
+aiosqlite==0.20.0
+
+# Environment & Config
+python-dotenv==1.0.1
+
+# Optional - for image generation (install separately if needed)
+# Pillow>=10.4.0

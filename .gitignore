@@ -19,6 +19,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+CLAUDE.md
+LEARNING.md
+LESSONS_LOG.md
 
 # Virtual environments
 venv/

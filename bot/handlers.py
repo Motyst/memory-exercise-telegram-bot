@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from database import get_session, UserRepository, ExerciseSessionRepository, ExerciseType
+from database import get_session, UserRepository, ExerciseSessionRepository, ExerciseType, SpacedRepetitionRepository
 from exercises import ExerciseRegistry, Difficulty
 from exercises.word_memorization import (
     SECONDS_PER_PAIR,
@@ -114,13 +114,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/help - This help message\n"
         "/stats - Your training statistics\n"
         "/history - Last 10 test results\n"
-        "/exercises - Available exercises\n\n"
+        "/exercises - Available exercises\n"
+        "/sr - Spaced repetition deck stats\n\n"
         "*Modes:*\n"
         "📝 *Training* — Study at your own pace\n"
         "🎯 *Test* — Study, then quiz (normal or ⚡ speed)\n"
-        "🔀 *Reverse Quiz* — Re-quiz with columns flipped\n\n"
+        "🔀 *Reverse Quiz* — Re-quiz with columns flipped\n"
+        "🔄 *SR Review* — Review only due cards (enable SR first)\n\n"
         f"⏱ {QUESTION_TIME_LIMIT}s per question · typos tolerated\n\n"
-        "💡 *Tip:* Regular practice leads to better results!"
+        "💡 *Tip:* Enable Spaced Repetition in the Word Memo menu to build a smart review deck!"
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 
@@ -143,7 +145,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    text = f"📊 *Your Training Statistics*\n\n*Total Sessions:* {stats['total_sessions']}\n"
+    streak = db_user.current_streak or 0
+    longest = db_user.longest_streak or 0
+    streak_line = f"🔥 *Streak:* {streak} day{'s' if streak != 1 else ''}"
+    if longest > streak:
+        streak_line += f"  (best: {longest})"
+    text = f"📊 *Your Training Statistics*\n\n{streak_line}\n*Total Sessions:* {stats['total_sessions']}\n"
     if stats["by_type"]:
         text += "\n*By Exercise Type:*\n"
         for t, c in stats["by_type"].items():
@@ -206,6 +213,57 @@ async def exercises_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def sr_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show spaced repetition deck statistics."""
+    user = update.effective_user
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        sr_repo = SpacedRepetitionRepository(session)
+        db_user = await user_repo.get_by_telegram_id(user.id)
+        if not db_user:
+            await update.message.reply_text("No data yet. Use /start first!")
+            return
+        sr_enabled = (db_user.preferences or {}).get("sr_enabled", False)
+        stats = await sr_repo.get_stats(db_user.id)
+
+    status = "✅ ON" if sr_enabled else "❌ OFF"
+    if stats["total"] == 0:
+        detail = "\nDeck is empty. Enable SR and complete tests to build it."
+    else:
+        detail = (
+            f"\n📦 Total cards: *{stats['total']}*"
+            f"\n⏰ Due now: *{stats['due']}*"
+            f"\n🌿 Mature (≥21d interval): *{stats['mature']}*"
+            f"\n📈 Avg interval: *{stats['avg_interval']:.1f} days*"
+        )
+
+    await update.message.reply_text(
+        f"🧠 *Spaced Repetition Stats*\n\nStatus: {status}{detail}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+# ============================================================================
+# SR helpers
+# ============================================================================
+
+async def _get_sr_enabled(telegram_id: int) -> bool:
+    """Fetch SR enabled preference for a user."""
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        db_user = await user_repo.get_by_telegram_id(telegram_id)
+        if not db_user:
+            return False
+        return (db_user.preferences or {}).get("sr_enabled", False)
+
+
+async def _get_mode_keyboard_for_user(telegram_id: int):
+    """Return mode keyboard with correct SR toggle state for this user."""
+    exercise = ExerciseRegistry.get("word_memo")
+    sr_enabled = await _get_sr_enabled(telegram_id)
+    return exercise.get_mode_keyboard(sr_enabled=sr_enabled)
+
+
 # ============================================================================
 # Callback Query Handlers
 # ============================================================================
@@ -247,10 +305,11 @@ async def start_exercise(query, context, exercise_type: str) -> None:
     state = get_user_state(context)
     await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
     set_user_state(context, "current_exercise", exercise_type)
+    kb = await _get_mode_keyboard_for_user(query.from_user.id)
     await query.edit_message_text(
         exercise.get_intro_message(),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=exercise.get_mode_keyboard(),
+        reply_markup=kb,
     )
 
 
@@ -266,17 +325,22 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
         clear_user_state(context)
         set_user_state(context, "current_exercise", "word_memo")
+        kb = await _get_mode_keyboard_for_user(query.from_user.id)
         await query.edit_message_text(
             exercise.get_intro_message(), parse_mode=ParseMode.MARKDOWN,
-            reply_markup=exercise.get_mode_keyboard(),
+            reply_markup=kb,
         )
 
     elif action == "mode":
-        set_user_state(context, "mode", value)
-        await query.edit_message_text(
-            exercise.get_difficulty_message(value), parse_mode=ParseMode.MARKDOWN,
-            reply_markup=exercise.get_difficulty_keyboard(),
-        )
+        if value == "sr_review":
+            set_user_state(context, "mode", "sr_review")
+            await generate_sr_review_test(query, context)
+        else:
+            set_user_state(context, "mode", value)
+            await query.edit_message_text(
+                exercise.get_difficulty_message(value), parse_mode=ParseMode.MARKDOWN,
+                reply_markup=exercise.get_difficulty_keyboard(),
+            )
 
     elif action == "diff":
         difficulty = Difficulty(value)
@@ -358,9 +422,30 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
         clear_user_state(context)
         set_user_state(context, "current_exercise", "word_memo")
+        kb = await _get_mode_keyboard_for_user(query.from_user.id)
         await query.edit_message_text(
             exercise.get_intro_message(), parse_mode=ParseMode.MARKDOWN,
-            reply_markup=exercise.get_mode_keyboard(),
+            reply_markup=kb,
+        )
+
+    elif action == "sr_toggle":
+        # Toggle SR preference and refresh mode screen
+        async with get_session() as session:
+            user_repo = UserRepository(session)
+            db_user = await user_repo.get_by_telegram_id(query.from_user.id)
+            if db_user:
+                prefs = dict(db_user.preferences or {})
+                prefs["sr_enabled"] = not prefs.get("sr_enabled", False)
+                await user_repo.update_preferences(query.from_user.id, prefs)
+                new_sr_enabled = prefs["sr_enabled"]
+            else:
+                new_sr_enabled = False
+        kb = exercise.get_mode_keyboard(sr_enabled=new_sr_enabled)
+        status = "✅ ON" if new_sr_enabled else "❌ OFF"
+        await query.answer(f"Spaced Repetition {status}", show_alert=False)
+        await query.edit_message_text(
+            exercise.get_intro_message(), parse_mode=ParseMode.MARKDOWN,
+            reply_markup=kb,
         )
 
     elif action == "skip":
@@ -378,9 +463,37 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
 # Training Mode
 # ============================================================================
 
+async def _get_recent_words(telegram_id: int) -> list[str]:
+    """Fetch rolling recent-words list from user preferences."""
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        db_user = await user_repo.get_by_telegram_id(telegram_id)
+        if not db_user:
+            return []
+        return (db_user.preferences or {}).get("recent_words", [])
+
+
+async def _save_recent_words(
+    telegram_id: int, pairs: list[tuple[str, str]], window: int = 200
+) -> None:
+    """Append used words to the rolling recent-words window in user preferences."""
+    used = [w for pair in pairs for w in pair]
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        db_user = await user_repo.get_by_telegram_id(telegram_id)
+        if not db_user:
+            return
+        prefs = dict(db_user.preferences or {})
+        recent = prefs.get("recent_words", [])
+        recent = (recent + used)[-window:]   # keep last N
+        prefs["recent_words"] = recent
+        await user_repo.update_preferences(telegram_id, prefs)
+
+
 async def generate_word_memo(query, context, difficulty, count) -> None:
     user = query.from_user
     exercise = ExerciseRegistry.get("word_memo")
+    recent = await _get_recent_words(user.id)
     async with get_session() as session:
         user_repo = UserRepository(session)
         session_repo = ExerciseSessionRepository(session)
@@ -390,7 +503,10 @@ async def generate_word_memo(query, context, difficulty, count) -> None:
                 user_id=db_user.id, exercise_type=ExerciseType.WORD_MEMORIZATION,
                 difficulty=difficulty.value, parameters={"count": count, "mode": "training"},
             )
-    result = await exercise.generate(difficulty=difficulty, parameters={"count": count})
+    result = await exercise.generate(
+        difficulty=difficulty, parameters={"count": count, "recent_words": recent}
+    )
+    await _save_recent_words(user.id, result.additional_data["pairs"])
     await query.edit_message_text(
         result.text_content, parse_mode=ParseMode.MARKDOWN,
         reply_markup=exercise.get_completion_keyboard(),
@@ -427,13 +543,19 @@ def _build_quiz_items(pairs, reverse=False):
 
 async def generate_word_memo_test(query, context, difficulty, count) -> None:
     exercise = ExerciseRegistry.get("word_memo")
-    result = await exercise.generate(difficulty=difficulty, parameters={"count": count})
+    recent = await _get_recent_words(query.from_user.id)
+    result = await exercise.generate(
+        difficulty=difficulty, parameters={"count": count, "recent_words": recent}
+    )
     pairs = result.additional_data["pairs"]
 
     state = get_user_state(context)
     speed = state.get("speed_mode", False)
     multiplier = SPEED_MODE_MULTIPLIER if speed else 1.0
     countdown_seconds = int(count * SECONDS_PER_PAIR * multiplier)
+
+    # Cache SR flag so results handler knows whether to update cards
+    sr_enabled = await _get_sr_enabled(query.from_user.id)
 
     quiz_items = _build_quiz_items(pairs)
 
@@ -445,6 +567,8 @@ async def generate_word_memo_test(query, context, difficulty, count) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
+    set_user_state(context, "sr_session", False)
+    set_user_state(context, "sr_enabled", sr_enabled)
 
     study_text = exercise.format_pairs_text_for_test(
         pairs, difficulty, countdown_seconds, speed_mode=speed,
@@ -459,6 +583,61 @@ async def generate_word_memo_test(query, context, difficulty, count) -> None:
         chat_id=query.message.chat_id, user_id=query.from_user.id,
         data={"user_id": query.from_user.id},
         name=f"quiz_timer_{query.from_user.id}",
+    )
+
+
+async def generate_sr_review_test(query, context) -> None:
+    """SR Review mode: test using only due SR cards."""
+    exercise = ExerciseRegistry.get("word_memo")
+    user = query.from_user
+
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        sr_repo = SpacedRepetitionRepository(session)
+        db_user = await user_repo.get_by_telegram_id(user.id)
+        if not db_user:
+            await query.edit_message_text("Please use /start first.")
+            return
+        due_cards = await sr_repo.get_due_cards(db_user.id, limit=50)
+
+    if not due_cards:
+        kb = await _get_mode_keyboard_for_user(user.id)
+        await query.edit_message_text(
+            "🎉 *No cards due for review!*\n\n"
+            "All caught up. Come back later, or run a regular test to add more words to your SR deck.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=kb,
+        )
+        return
+
+    pairs = [(card.word1, card.word2) for card in due_cards]
+    count = len(pairs)
+    countdown_seconds = int(count * SECONDS_PER_PAIR)
+    quiz_items = _build_quiz_items(pairs)
+
+    state = get_user_state(context)
+    set_user_state(context, "test_active", False)
+    set_user_state(context, "test_pairs", pairs)
+    set_user_state(context, "test_quiz_items", quiz_items)
+    set_user_state(context, "test_current_index", 0)
+    set_user_state(context, "test_results", [])
+    set_user_state(context, "test_difficulty", None)
+    set_user_state(context, "test_chat_id", query.message.chat_id)
+    set_user_state(context, "baseline_results", [])
+    set_user_state(context, "sr_session", True)
+    set_user_state(context, "sr_enabled", True)
+
+    study_text = exercise.format_sr_review_study_text(pairs, countdown_seconds)
+    await query.edit_message_text(study_text, parse_mode=ParseMode.MARKDOWN)
+
+    set_user_state(context, "test_study_message_id", query.message.message_id)
+    _track_bot_message(state, query.message.message_id)
+
+    context.job_queue.run_once(
+        _start_quiz_after_timer, when=countdown_seconds,
+        chat_id=query.message.chat_id, user_id=user.id,
+        data={"user_id": user.id},
+        name=f"quiz_timer_{user.id}",
     )
 
 
@@ -591,32 +770,45 @@ async def _show_test_results(context, chat_id, state) -> None:
     total = len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
-    # Personal best check (#6)
+    # Personal best check + streak update
     personal_best_text = None
+    streak_text = None
     try:
         async with get_session() as session:
             user_repo = UserRepository(session)
             session_repo = ExerciseSessionRepository(session)
             db_user = await user_repo.get_by_telegram_id(chat_id)
             if db_user:
+                difficulty_value = difficulty.value if difficulty else "sr_review"
                 prev_best = await session_repo.get_personal_best(
-                    db_user.id, difficulty.value, len(pairs),
-                )
+                    db_user.id, difficulty_value, len(pairs),
+                ) if difficulty else None
                 # Save current session
                 await session_repo.create(
                     user_id=db_user.id,
                     exercise_type=ExerciseType.WORD_MEMORIZATION,
-                    difficulty=difficulty.value,
+                    difficulty=difficulty_value,
                     parameters={
                         "count": len(pairs), "mode": "test",
                         "score": correct_count, "max_score": total,
                     },
                 )
-                # Compare after saving (prev_best is from before this session)
-                if prev_best is not None and score_pct > prev_best:
-                    personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
-                elif prev_best is None:
-                    personal_best_text = "🏆 *First test at this level — benchmark set!*"
+                # Personal best
+                if difficulty:
+                    if prev_best is not None and score_pct > prev_best:
+                        personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
+                    elif prev_best is None:
+                        personal_best_text = "🏆 *First test at this level — benchmark set!*"
+                # Streak
+                streak_info = await user_repo.update_streak(chat_id)
+                if streak_info["is_first_today"]:
+                    s = streak_info["streak"]
+                    if s == 1:
+                        streak_text = "📅 *Day 1 — streak started!*"
+                    elif s == streak_info["longest"]:
+                        streak_text = f"🔥 *{s}-day streak — new record!*"
+                    else:
+                        streak_text = f"🔥 *{s}-day streak!* Keep it up!"
     except Exception as e:
         logger.error(f"Failed to save/check test results: {e}")
 
@@ -628,11 +820,32 @@ async def _show_test_results(context, chat_id, state) -> None:
         pairs, merged_results, difficulty,
         personal_best_text=personal_best_text,
         progression_text=progression_text,
+        streak_text=streak_text,
     )
 
     state["test_active"] = False
     state["last_test_results"] = merged_results
     state["last_test_pairs"] = pairs
+
+    # Save used words to rolling recent-words window (avoids repetition)
+    try:
+        await _save_recent_words(chat_id, pairs)
+    except Exception as e:
+        logger.error(f"Failed to save recent words: {e}")
+
+    # SR card update: runs after any test when SR is enabled
+    if state.get("sr_enabled") or state.get("sr_session"):
+        try:
+            async with get_session() as session:
+                user_repo = UserRepository(session)
+                sr_repo = SpacedRepetitionRepository(session)
+                db_user = await user_repo.get_by_telegram_id(chat_id)
+                if db_user:
+                    await sr_repo.update_cards_from_results(
+                        db_user.id, merged_results, pairs,
+                    )
+        except Exception as e:
+            logger.error(f"SR update failed: {e}")
 
     has_mistakes = any(not r["correct"] for r in merged_results)
     await context.bot.send_message(

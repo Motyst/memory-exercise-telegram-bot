@@ -184,12 +184,22 @@ class WordMemorizationExercise(BaseExercise):
     # Keyboards
     # ========================================================================
 
-    def get_mode_keyboard(self) -> InlineKeyboardMarkup:
-        return InlineKeyboardMarkup([
+    def get_mode_keyboard(self, sr_enabled: bool = False) -> InlineKeyboardMarkup:
+        rows = [
             [InlineKeyboardButton("📝 Training Mode", callback_data=f"{self.exercise_type}:mode:training")],
-            [InlineKeyboardButton("🎯 Test Mode", callback_data=f"{self.exercise_type}:mode:test")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
-        ])
+            [InlineKeyboardButton(
+                "🎯 Test Mode" + (" (SR ✓)" if sr_enabled else ""),
+                callback_data=f"{self.exercise_type}:mode:test",
+            )],
+        ]
+        if sr_enabled:
+            rows.append([InlineKeyboardButton(
+                "🔄 SR Review (due cards)", callback_data=f"{self.exercise_type}:mode:sr_review",
+            )])
+        sr_label = "🧠 SR: ON  · tap to disable" if sr_enabled else "🧠 SR: OFF  · tap to enable"
+        rows.append([InlineKeyboardButton(sr_label, callback_data=f"{self.exercise_type}:sr_toggle")])
+        rows.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
+        return InlineKeyboardMarkup(rows)
 
     def get_difficulty_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
@@ -275,13 +285,24 @@ class WordMemorizationExercise(BaseExercise):
     # Generation
     # ========================================================================
 
+    # Rolling window: how many recently used words to avoid re-showing
+    RECENT_WORDS_WINDOW = 200
+
     async def generate(self, difficulty: Difficulty, parameters: dict) -> ExerciseResult:
         count = min(parameters.get("count", 10), settings.max_word_pairs)
-        words = self._get_words_for_difficulty(difficulty)
-        if len(words) < count * 2:
-            selected_words = random.choices(words, k=count * 2)
+        all_words = self._get_words_for_difficulty(difficulty)
+        recent: list[str] = parameters.get("recent_words", [])
+
+        # Prefer words not seen recently; fall back to full pool if needed
+        recent_set = set(w.lower() for w in recent)
+        fresh = [w for w in all_words if w.lower() not in recent_set]
+        pool = fresh if len(fresh) >= count * 2 else all_words
+
+        if len(pool) < count * 2:
+            selected_words = random.choices(pool, k=count * 2)
         else:
-            selected_words = random.sample(words, count * 2)
+            selected_words = random.sample(pool, count * 2)
+
         pairs = [(selected_words[i], selected_words[i + count]) for i in range(count)]
         return ExerciseResult(
             text_content=self._format_pairs_text(pairs, difficulty),
@@ -301,6 +322,23 @@ class WordMemorizationExercise(BaseExercise):
             lines.append(f"{i}. *{word1}* — {word2}")
             if i % 10 == 0 and i < len(pairs):
                 lines.append("———————————")
+        return "\n".join(lines)
+
+    def format_sr_review_study_text(
+        self, pairs: list[tuple[str, str]], countdown_seconds: int,
+    ) -> str:
+        lines = [
+            f"🔄 *SR Review — {len(pairs)} card{'s' if len(pairs) != 1 else ''} due*\n",
+        ]
+        for i, (word1, word2) in enumerate(pairs, 1):
+            lines.append(f"{i}. *{word1}* — {word2}")
+            if i % 10 == 0 and i < len(pairs):
+                lines.append("———————————")
+        lines.append(
+            f"\n\n⏱ You have *{countdown_seconds} seconds* to review these pairs.\n"
+            "They'll disappear and you'll be quizzed!\n"
+            f"Each question has a *{QUESTION_TIME_LIMIT}s* time limit."
+        )
         return "\n".join(lines)
 
     def format_pairs_text_for_test(
@@ -326,14 +364,21 @@ class WordMemorizationExercise(BaseExercise):
         self, pairs, results, difficulty,
         personal_best_text: str | None = None,
         progression_text: str | None = None,
+        streak_text: str | None = None,
     ) -> str:
         correct_count = sum(1 for r in results if r["correct"])
         total = len(results)
 
+        diff_label = DIFFICULTY_NAMES.get(difficulty, "SR Review") if difficulty else "SR Review"
         lines = [
-            f"📊 *Test Results — {DIFFICULTY_NAMES[difficulty]}*",
+            f"📊 *Test Results — {diff_label}*",
             f"Score: *{correct_count}/{total}*\n",
         ]
+
+        # Streak notification
+        if streak_text:
+            lines.append(streak_text)
+            lines.append("")
 
         # Personal best notification (#6)
         if personal_best_text:

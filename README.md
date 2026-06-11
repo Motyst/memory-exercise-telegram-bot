@@ -17,7 +17,6 @@ Telegram bot for brain training exercises. Currently features a full Word Memori
 - Personal best tracking with notifications
 - Anti-repeat word selection (rolling 200-word window)
 - **Daily streak tracking** — shown after every test and in `/stats`
-- **Spaced Repetition (SM-2)** — per-user toggle; SR Review mode for due cards only
 
 ### Architecture
 - Modular exercise system — easy to add new exercises (see below)
@@ -33,7 +32,6 @@ Telegram bot for brain training exercises. Currently features a full Word Memori
 | `/stats` | Training stats + current streak |
 | `/history` | Last 10 sessions |
 | `/exercises` | List available exercises |
-| `/sr` | Spaced repetition deck stats |
 
 ## Project Structure
 

@@ -19,7 +19,6 @@ from .handlers import (
     stats_command,
     history_command,
     exercises_command,
-    sr_command,
     callback_handler,
     text_message_handler,
 )
@@ -34,7 +33,6 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("exercises", exercises_command))
-    application.add_handler(CommandHandler("sr", sr_command))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler)

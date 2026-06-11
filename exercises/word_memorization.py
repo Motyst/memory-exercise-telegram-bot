@@ -184,21 +184,12 @@ class WordMemorizationExercise(BaseExercise):
     # Keyboards
     # ========================================================================
 
-    def get_mode_keyboard(self, sr_enabled: bool = False) -> InlineKeyboardMarkup:
+    def get_mode_keyboard(self) -> InlineKeyboardMarkup:
         rows = [
             [InlineKeyboardButton("📝 Training Mode", callback_data=f"{self.exercise_type}:mode:training")],
-            [InlineKeyboardButton(
-                "🎯 Test Mode" + (" (SR ✓)" if sr_enabled else ""),
-                callback_data=f"{self.exercise_type}:mode:test",
-            )],
+            [InlineKeyboardButton("🎯 Test Mode", callback_data=f"{self.exercise_type}:mode:test")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ]
-        if sr_enabled:
-            rows.append([InlineKeyboardButton(
-                "🔄 SR Review (due cards)", callback_data=f"{self.exercise_type}:mode:sr_review",
-            )])
-        sr_label = "🧠 SR: ON  · tap to disable" if sr_enabled else "🧠 SR: OFF  · tap to enable"
-        rows.append([InlineKeyboardButton(sr_label, callback_data=f"{self.exercise_type}:sr_toggle")])
-        rows.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
         return InlineKeyboardMarkup(rows)
 
     def get_difficulty_keyboard(self) -> InlineKeyboardMarkup:
@@ -324,23 +315,6 @@ class WordMemorizationExercise(BaseExercise):
                 lines.append("———————————")
         return "\n".join(lines)
 
-    def format_sr_review_study_text(
-        self, pairs: list[tuple[str, str]], countdown_seconds: int,
-    ) -> str:
-        lines = [
-            f"🔄 *SR Review — {len(pairs)} card{'s' if len(pairs) != 1 else ''} due*\n",
-        ]
-        for i, (word1, word2) in enumerate(pairs, 1):
-            lines.append(f"{i}. *{word1}* — {word2}")
-            if i % 10 == 0 and i < len(pairs):
-                lines.append("———————————")
-        lines.append(
-            f"\n\n⏱ You have *{countdown_seconds} seconds* to review these pairs.\n"
-            "They'll disappear and you'll be quizzed!\n"
-            f"Each question has a *{QUESTION_TIME_LIMIT}s* time limit."
-        )
-        return "\n".join(lines)
-
     def format_pairs_text_for_test(
         self, pairs, difficulty, countdown_seconds, speed_mode=False,
     ) -> str:
@@ -369,7 +343,7 @@ class WordMemorizationExercise(BaseExercise):
         correct_count = sum(1 for r in results if r["correct"])
         total = len(results)
 
-        diff_label = DIFFICULTY_NAMES.get(difficulty, "SR Review") if difficulty else "SR Review"
+        diff_label = DIFFICULTY_NAMES.get(difficulty, "Unknown") if difficulty else "Unknown"
         lines = [
             f"📊 *Test Results — {diff_label}*",
             f"Score: *{correct_count}/{total}*\n",

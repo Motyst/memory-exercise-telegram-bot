@@ -6,6 +6,7 @@ Handles all user interactions, commands, and callbacks.
 import asyncio
 import logging
 import random
+import time
 from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -24,6 +25,12 @@ from exercises.word_memorization import (
 )
 
 logger = logging.getLogger(__name__)
+
+# If a text answer arrives within this many seconds after a question timed out,
+# it was almost certainly typed for the timed-out question (the next question
+# hasn't visibly rendered yet) — apply it retroactively instead of counting it
+# against the new question.
+ANSWER_TIMEOUT_GRACE = 2.0
 
 
 # ============================================================================
@@ -441,26 +448,17 @@ async def generate_word_memo(query, context, difficulty, count) -> None:
 # Test Mode
 # ============================================================================
 
-def _build_quiz_items(pairs, reverse=False):
-    """Build shuffled quiz items. If reverse=True, flip shown/expected."""
+def _build_quiz_items(pairs):
+    """Build shuffled quiz items with a random word from each pair shown."""
     quiz_order = list(range(len(pairs)))
     random.shuffle(quiz_order)
     quiz_items = []
     for idx in quiz_order:
         w1, w2 = pairs[idx]
-        if reverse:
-            # Flip: if normally we'd show w1 and ask w2, now show w2 and ask w1
-            if random.choice([True, False]):
-                shown, expected = w2, w1
-            else:
-                shown, expected = w1, w2
-            # Then flip the assignment
-            shown, expected = expected, shown
+        if random.choice([True, False]):
+            shown, expected = w1, w2
         else:
-            if random.choice([True, False]):
-                shown, expected = w1, w2
-            else:
-                shown, expected = w2, w1
+            shown, expected = w2, w1
         quiz_items.append({"pair_index": idx, "shown_word": shown, "expected": expected})
     return quiz_items
 
@@ -541,8 +539,15 @@ async def _question_timeout_callback(context) -> None:
     chat_id, user_id = job.chat_id, job.data["user_id"]
     user_data = context.application.user_data.get(user_id, {})
     state = user_data.get("state", {})
-    if state.get("test_active"):
-        await _record_answer(context, chat_id, "(timed out)", user_id=user_id)
+    if not state.get("test_active"):
+        return
+    # Stale-timer guard: if the index already moved past the question this
+    # timer was armed for, the user answered in time — don't time out the
+    # next question.
+    if state.get("test_current_index", 0) != job.data.get("question_index"):
+        return
+    state["last_timeout_at"] = time.monotonic()
+    await _record_answer(context, chat_id, "(timed out)", user_id=user_id)
 
 
 # ---- Core quiz flow ----
@@ -553,6 +558,12 @@ async def _send_next_question(context, chat_id, state, user_id=None) -> None:
     quiz_items = state.get("test_quiz_items", [])
 
     if current_index >= len(quiz_items):
+        # If the final question just timed out, hold for the grace window so a
+        # late answer can still be credited before results render (test_active
+        # stays True during the sleep, so the answer routes through normally).
+        last_timeout_at = state.get("last_timeout_at")
+        if last_timeout_at is not None and time.monotonic() - last_timeout_at <= ANSWER_TIMEOUT_GRACE:
+            await asyncio.sleep(ANSWER_TIMEOUT_GRACE)
         await _cleanup_bot_messages(context.bot, chat_id, state)
         await _show_test_results(context, chat_id, state)
         return
@@ -572,7 +583,8 @@ async def _send_next_question(context, chat_id, state, user_id=None) -> None:
     context.job_queue.run_once(
         _question_timeout_callback, when=QUESTION_TIME_LIMIT,
         chat_id=chat_id, user_id=user_id,
-        data={"user_id": user_id}, name=_question_timer_name(user_id),
+        data={"user_id": user_id, "question_index": current_index},
+        name=_question_timer_name(user_id),
     )
 
 
@@ -581,12 +593,43 @@ async def _record_answer(context, chat_id, answer_text, user_id=None, answer_mes
         user_id = chat_id
     user_data = context.application.user_data.get(user_id, {})
     state = user_data.get("state", {})
+
+    results = state.get("test_results", [])
+    is_special = answer_text in ("(skipped)", "(timed out)")
+
+    # Late-answer grace: the previous question just timed out and this text
+    # arrived moments later — the user typed it for the timed-out question,
+    # not the one that hasn't visibly appeared yet. Re-score the previous
+    # result and leave the current question (and its timer) untouched.
+    # Runs BEFORE the active/index guards so it also covers the final
+    # question, whose results render immediately after timeout.
+    last_timeout_at = state.get("last_timeout_at")
+    if (
+        not is_special
+        and last_timeout_at is not None
+        and time.monotonic() - last_timeout_at <= ANSWER_TIMEOUT_GRACE
+        and results
+        and results[-1]["answer"] == "(timed out)"
+    ):
+        state["last_timeout_at"] = None
+        if answer_message_id:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=answer_message_id)
+            except Exception:
+                pass
+        prev = results[-1]
+        exact = answer_text.strip().lower() == prev["expected"].strip().lower()
+        fuzzy = (not exact) and is_fuzzy_match(answer_text, prev["expected"])
+        prev["answer"] = answer_text.strip()
+        prev["correct"] = exact or fuzzy
+        prev["fuzzy"] = fuzzy
+        return
+
     if not state.get("test_active"):
         return
 
     quiz_items = state.get("test_quiz_items", [])
     current_index = state.get("test_current_index", 0)
-    results = state.get("test_results", [])
     if current_index >= len(quiz_items):
         return
     item = quiz_items[current_index]
@@ -599,7 +642,6 @@ async def _record_answer(context, chat_id, answer_text, user_id=None, answer_mes
         except Exception:
             pass
 
-    is_special = answer_text in ("(skipped)", "(timed out)")
     if is_special:
         is_correct, fuzzy = False, False
     else:
@@ -618,6 +660,7 @@ async def _record_answer(context, chat_id, answer_text, user_id=None, answer_mes
 
 
 async def _show_test_results(context, chat_id, state) -> None:
+    state["last_timeout_at"] = None
     exercise = ExerciseRegistry.get("word_memo")
     pairs = state.get("test_pairs", [])
     results = state.get("test_results", [])
@@ -643,10 +686,10 @@ async def _show_test_results(context, chat_id, state) -> None:
             session_repo = ExerciseSessionRepository(session)
             db_user = await user_repo.get_by_telegram_id(chat_id)
             if db_user:
-                difficulty_value = difficulty.value if difficulty else "sr_review"
+                difficulty_value = difficulty.value
                 prev_best = await session_repo.get_personal_best(
                     db_user.id, difficulty_value, len(pairs),
-                ) if difficulty else None
+                )
                 # Save current session
                 await session_repo.create(
                     user_id=db_user.id,
@@ -658,11 +701,10 @@ async def _show_test_results(context, chat_id, state) -> None:
                     },
                 )
                 # Personal best
-                if difficulty:
-                    if prev_best is not None and score_pct > prev_best:
-                        personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
-                    elif prev_best is None:
-                        personal_best_text = "🏆 *First test at this level — benchmark set!*"
+                if prev_best is not None and score_pct > prev_best:
+                    personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
+                elif prev_best is None:
+                    personal_best_text = "🏆 *First test at this level — benchmark set!*"
                 # Streak
                 streak_info = await user_repo.update_streak(chat_id)
                 if streak_info["is_first_today"]:

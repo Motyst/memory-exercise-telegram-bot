@@ -210,7 +210,7 @@ class WordMemorizationExercise(BaseExercise):
              InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ])
 
-    def get_parameter_keyboard(self, difficulty: Difficulty) -> InlineKeyboardMarkup:
+    def _build_count_keyboard(self, back_action: str) -> InlineKeyboardMarkup:
         buttons = []
         row = []
         for i, count in enumerate(self.COUNT_OPTIONS):
@@ -221,27 +221,17 @@ class WordMemorizationExercise(BaseExercise):
                 buttons.append(row)
                 row = []
         buttons.append([
-            InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:back_to_speed"),
+            InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:{back_action}"),
             InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu"),
         ])
         return InlineKeyboardMarkup(buttons)
 
+    def get_parameter_keyboard(self, difficulty: Difficulty) -> InlineKeyboardMarkup:
+        return self._build_count_keyboard("back_to_speed")
+
     def get_parameter_keyboard_training(self, difficulty: Difficulty) -> InlineKeyboardMarkup:
         """Count keyboard for training mode (back goes to difficulty, not speed)."""
-        buttons = []
-        row = []
-        for i, count in enumerate(self.COUNT_OPTIONS):
-            row.append(InlineKeyboardButton(
-                f"{count} pairs", callback_data=f"{self.exercise_type}:count:{count}",
-            ))
-            if len(row) == 4 or i == len(self.COUNT_OPTIONS) - 1:
-                buttons.append(row)
-                row = []
-        buttons.append([
-            InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:back_to_diff"),
-            InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu"),
-        ])
-        return InlineKeyboardMarkup(buttons)
+        return self._build_count_keyboard("back_to_diff")
 
     def get_skip_keyboard(self, seconds_left: int = QUESTION_TIME_LIMIT) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([[

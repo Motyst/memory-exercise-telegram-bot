@@ -176,13 +176,17 @@ class ExerciseSessionRepository:
         Return the best score percentage for a given difficulty + pair count,
         or None if no previous test exists for that combo.
         """
-        sessions = await self.get_user_sessions(user_id, limit=10000)
+        result = await self.session.execute(
+            select(ExerciseSession).where(
+                ExerciseSession.user_id == user_id,
+                ExerciseSession.difficulty == difficulty,
+            )
+        )
         best = None
-        for sess in sessions:
+        for sess in result.scalars():
             params = sess.parameters or {}
             if (
                 params.get("mode") == "test"
-                and sess.difficulty == difficulty
                 and params.get("count") == count
                 and params.get("max_score")
             ):

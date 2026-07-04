@@ -13,8 +13,17 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
-from database import get_session, UserRepository, ExerciseSessionRepository, ExerciseType
+from database import (
+    get_session, UserRepository, ExerciseSessionRepository,
+    AchievementRepository, UserSkillRepository, ExerciseType,
+)
 from exercises import ExerciseRegistry, Difficulty
+from gamification import (
+    ACHIEVEMENTS, AchievementContext, evaluate_achievements,
+    SKILLS, EXERCISE_SKILLS, compute_test_xp, level_from_xp,
+    xp_for_next_level, render_progress_bar,
+)
+from .features import is_xp_enabled
 from exercises.word_memorization import (
     SECONDS_PER_PAIR,
     SPEED_MODE_MULTIPLIER,
@@ -31,6 +40,17 @@ logger = logging.getLogger(__name__)
 # hasn't visibly rendered yet) — apply it retroactively instead of counting it
 # against the new question.
 ANSWER_TIMEOUT_GRACE = 2.0
+
+# With concurrent_updates enabled, two rapid messages from the same user could
+# race through _record_answer and double-score one question. Serialize answer
+# recording per user.
+_answer_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_answer_lock(user_id: int) -> asyncio.Lock:
+    if user_id not in _answer_locks:
+        _answer_locks[user_id] = asyncio.Lock()
+    return _answer_locks[user_id]
 
 
 # ============================================================================
@@ -114,6 +134,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    level_line = "/level - Your XP and skill levels\n" if is_xp_enabled() else ""
     help_text = (
         "🆘 *Mental Training Bot Help*\n\n"
         "*Commands:*\n"
@@ -121,6 +142,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/help - This help message\n"
         "/stats - Your training statistics\n"
         "/history - Last 10 test results\n"
+        f"{level_line}"
+        "/achievements - Your achievements\n"
+        "/leaderboard - Compare with others (opt-in)\n"
         "/exercises - Available exercises\n\n"
         "*Modes:*\n"
         "📝 *Training* — Study at your own pace\n"
@@ -141,6 +165,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text("No statistics yet. Start training first!")
             return
         stats = await session_repo.get_user_stats(db_user.id)
+        skill_rows = (
+            await UserSkillRepository(session).get_all_for_user(db_user.id)
+            if is_xp_enabled() else []
+        )
 
     if stats["total_sessions"] == 0:
         await update.message.reply_text(
@@ -154,7 +182,13 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     streak_line = f"🔥 *Streak:* {streak} day{'s' if streak != 1 else ''}"
     if longest > streak:
         streak_line += f"  (best: {longest})"
-    text = f"📊 *Your Training Statistics*\n\n{streak_line}\n*Total Sessions:* {stats['total_sessions']}\n"
+    text = f"📊 *Your Training Statistics*\n\n{streak_line}\n"
+    for row in skill_rows:
+        skill = SKILLS.get(row.skill)
+        if skill:
+            level, _, _ = level_from_xp(row.xp)
+            text += f"{skill.emoji} *{skill.name}:* Level {level} · {row.xp:,} XP\n"
+    text += f"*Total Sessions:* {stats['total_sessions']}\n"
     if stats["by_type"]:
         text += "\n*By Exercise Type:*\n"
         for t, c in stats["by_type"].items():
@@ -217,6 +251,118 @@ async def exercises_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_xp_enabled():
+        await update.message.reply_text("The XP system is not available right now.")
+        return
+    user = update.effective_user
+    async with get_session() as session:
+        db_user = await UserRepository(session).get_by_telegram_id(user.id)
+        skill_rows = (
+            await UserSkillRepository(session).get_all_for_user(db_user.id)
+            if db_user else []
+        )
+    rows_by_code = {r.skill: r for r in skill_rows}
+
+    lines = ["⭐ *Your Skills*\n"]
+    for code, skill in SKILLS.items():
+        row = rows_by_code.get(code)
+        total_xp = row.xp if row else 0
+        level, into, need = level_from_xp(total_xp)
+        bar = render_progress_bar(into, need)
+        lines.append(f"{skill.emoji} *{skill.name}* — Level {level}")
+        lines.append(f"{bar}  {into}/{need} XP to next level")
+        lines.append(f"_{skill.description}_ · Total: {total_xp:,} XP")
+        if row and row.hard_streak >= 2:
+            lines.append(f"🔥 Hard-exercise streak: {row.hard_streak} (XP bonus active)")
+        lines.append("")
+    lines.append(
+        "💡 _Harder tests = more XP: more pairs, higher difficulty, speed mode,\n"
+        "better accuracy. Easy tests give less XP as you level up._"
+    )
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    async with get_session() as session:
+        db_user = await UserRepository(session).get_by_telegram_id(user.id)
+        unlocked = (
+            await AchievementRepository(session).get_unlocked(db_user.id)
+            if db_user else {}
+        )
+
+    lines = [f"🏅 *Achievements — {len(unlocked)}/{len(ACHIEVEMENTS)}*\n"]
+    for a in ACHIEVEMENTS:
+        if a.code in unlocked:
+            date_str = unlocked[a.code].strftime("%b %d, %Y")
+            lines.append(f"{a.emoji} *{a.name}* — {a.description}  ✅ _{date_str}_")
+        else:
+            lines.append(f"🔒 {a.name} — {a.description}")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    async with get_session() as session:
+        db_user = await UserRepository(session).get_by_telegram_id(user.id)
+        opted_in = bool(db_user and db_user.leaderboard_opt_in)
+        board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
+
+    text = _format_leaderboard(board, user.id)
+    await update.message.reply_text(
+        text, parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_leaderboard_keyboard(opted_in),
+    )
+
+
+def _format_leaderboard(board: list[dict], viewer_telegram_id: int) -> str:
+    lines = ["🏆 *Leaderboard* — avg test score (min 3 tests)\n"]
+    if not board:
+        lines.append("_No one on the board yet. Join and complete 3 tests!_")
+    else:
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        for rank, entry in enumerate(board, 1):
+            marker = medals.get(rank, f"{rank}.")
+            you = " ← you" if entry["telegram_id"] == viewer_telegram_id else ""
+            streak = f" 🔥{entry['streak']}" if entry["streak"] else ""
+            lines.append(
+                f"{marker} *{entry['name']}* — {entry['avg_pct']:.0f}% avg, "
+                f"{entry['best_pct']:.0f}% best ({entry['tests']} tests){streak}{you}"
+            )
+    lines.append("\n_Only users who opt in are listed._")
+    return "\n".join(lines)
+
+
+def _leaderboard_keyboard(opted_in: bool) -> InlineKeyboardMarkup:
+    if opted_in:
+        button = InlineKeyboardButton("🚪 Leave leaderboard", callback_data="lb:leave")
+    else:
+        button = InlineKeyboardButton("✋ Join leaderboard", callback_data="lb:join")
+    return InlineKeyboardMarkup([[button]])
+
+
+async def handle_leaderboard_callback(query, context, data: str) -> None:
+    action = data.split(":")[1]
+    opt_in = action == "join"
+    user = query.from_user
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        await user_repo.get_or_create(
+            telegram_id=user.id, username=user.username,
+            first_name=user.first_name, last_name=user.last_name,
+        )
+        await user_repo.set_leaderboard_opt_in(user.id, opt_in)
+        board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
+
+    text = _format_leaderboard(board, user.id)
+    text += "\n\n✅ You joined the leaderboard!" if opt_in else "\n\n👋 You left the leaderboard."
+    await query.edit_message_text(
+        text, parse_mode=ParseMode.MARKDOWN,
+        reply_markup=_leaderboard_keyboard(opt_in),
+    )
+
+
 
 
 # ============================================================================
@@ -233,10 +379,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await show_main_menu(query, context)
     elif data.startswith("exercise:"):
         await start_exercise(query, context, data.split(":")[1])
-    elif data.startswith("word_memo:"):
-        await handle_word_memo_callback(query, context, data)
     else:
-        logger.warning(f"Unknown callback: {data}")
+        # Route "<prefix>:..." to the registered handler for that prefix.
+        # New exercises: add one entry to CALLBACK_ROUTES (see bottom of file).
+        route = CALLBACK_ROUTES.get(data.split(":")[0])
+        if route:
+            await route(query, context, data)
+        else:
+            logger.warning(f"Unknown callback: {data}")
 
 
 async def show_main_menu(query, context) -> None:
@@ -479,6 +629,7 @@ async def generate_word_memo_test(query, context, difficulty, count) -> None:
     quiz_items = _build_quiz_items(pairs)
 
     set_user_state(context, "test_active", False)
+    set_user_state(context, "test_exercise_type", exercise.exercise_type)
     set_user_state(context, "test_pairs", pairs)
     set_user_state(context, "test_quiz_items", quiz_items)
     set_user_state(context, "test_current_index", 0)
@@ -553,7 +704,7 @@ async def _question_timeout_callback(context) -> None:
 # ---- Core quiz flow ----
 
 async def _send_next_question(context, chat_id, state, user_id=None) -> None:
-    exercise = ExerciseRegistry.get("word_memo")
+    exercise = ExerciseRegistry.get(state.get("test_exercise_type", "word_memo"))
     current_index = state.get("test_current_index", 0)
     quiz_items = state.get("test_quiz_items", [])
 
@@ -591,6 +742,11 @@ async def _send_next_question(context, chat_id, state, user_id=None) -> None:
 async def _record_answer(context, chat_id, answer_text, user_id=None, answer_message_id=None) -> None:
     if user_id is None:
         user_id = chat_id
+    async with _get_answer_lock(user_id):
+        await _record_answer_impl(context, chat_id, answer_text, user_id, answer_message_id)
+
+
+async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_message_id) -> None:
     user_data = context.application.user_data.get(user_id, {})
     state = user_data.get("state", {})
 
@@ -661,7 +817,7 @@ async def _record_answer(context, chat_id, answer_text, user_id=None, answer_mes
 
 async def _show_test_results(context, chat_id, state) -> None:
     state["last_timeout_at"] = None
-    exercise = ExerciseRegistry.get("word_memo")
+    exercise = ExerciseRegistry.get(state.get("test_exercise_type", "word_memo"))
     pairs = state.get("test_pairs", [])
     results = state.get("test_results", [])
     difficulty = state.get("test_difficulty", Difficulty.BEGINNER)
@@ -677,28 +833,30 @@ async def _show_test_results(context, chat_id, state) -> None:
     total = len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
-    # Personal best check + streak update
+    # Personal best check + streak update + achievements + XP
     personal_best_text = None
     streak_text = None
+    new_achievements = []
+    xp_lines = []
     try:
         async with get_session() as session:
             user_repo = UserRepository(session)
             session_repo = ExerciseSessionRepository(session)
+            achievement_repo = AchievementRepository(session)
             db_user = await user_repo.get_by_telegram_id(chat_id)
             if db_user:
                 difficulty_value = difficulty.value
                 prev_best = await session_repo.get_personal_best(
                     db_user.id, difficulty_value, len(pairs),
                 )
-                # Save current session
+                # Save current session — score/max_score go into real columns
+                # so stats, leaderboard and admin views aggregate in SQL.
                 await session_repo.create(
                     user_id=db_user.id,
                     exercise_type=ExerciseType.WORD_MEMORIZATION,
                     difficulty=difficulty_value,
-                    parameters={
-                        "count": len(pairs), "mode": "test",
-                        "score": correct_count, "max_score": total,
-                    },
+                    parameters={"count": len(pairs), "mode": "test"},
+                    score=correct_count, max_score=total, completed=True,
                 )
                 # Personal best
                 if prev_best is not None and score_pct > prev_best:
@@ -715,6 +873,64 @@ async def _show_test_results(context, chat_id, state) -> None:
                         streak_text = f"🔥 *{s}-day streak — new record!*"
                     else:
                         streak_text = f"🔥 *{s}-day streak!* Keep it up!"
+                # Achievements
+                total_tests = await session_repo.count_completed_tests(db_user.id)
+                ctx = AchievementContext(
+                    score_pct=score_pct,
+                    pair_count=len(pairs),
+                    difficulty=difficulty_value,
+                    speed_mode=state.get("speed_mode", False),
+                    total_tests=total_tests,
+                    streak=streak_info["streak"],
+                    longest_streak=streak_info["longest"],
+                )
+                unlocked = await achievement_repo.get_unlocked_codes(db_user.id)
+                new_achievements = evaluate_achievements(ctx, unlocked)
+                if new_achievements:
+                    await achievement_repo.unlock(
+                        db_user.id, [a.code for a in new_achievements]
+                    )
+                # XP — based on THIS round's questions (a fresh test or
+                # reverse quiz = full set; retry-mistakes = just the retried
+                # subset, so retries can't farm full-test XP).
+                if is_xp_enabled():
+                    skill_code = EXERCISE_SKILLS.get(ExerciseType.WORD_MEMORIZATION.value)
+                    quiz_items = state.get("test_quiz_items", [])
+                    if skill_code and quiz_items:
+                        round_correct = sum(1 for r in results if r["correct"])
+                        round_pct = round_correct / len(quiz_items) * 100
+                        skill_repo = UserSkillRepository(session)
+                        skill_row = await skill_repo.get_or_create(db_user.id, skill_code)
+                        old_level = skill_row.level
+                        xp_res = compute_test_xp(
+                            pairs=len(quiz_items),
+                            difficulty=difficulty_value,
+                            speed_mode=state.get("speed_mode", False),
+                            score_pct=round_pct,
+                            level=skill_row.level,
+                            hard_streak=skill_row.hard_streak,
+                        )
+                        new_level, xp_into, xp_need = level_from_xp(
+                            skill_row.xp + xp_res.xp
+                        )
+                        await skill_repo.add_xp(
+                            db_user.id, skill_code, xp_res.xp,
+                            new_level, xp_res.new_hard_streak,
+                        )
+                        if xp_res.xp > 0:
+                            skill = SKILLS[skill_code]
+                            xp_lines.append(
+                                f"⭐ *+{xp_res.xp} XP* {skill.emoji} {skill.name} — "
+                                f"Level {new_level} ({xp_into}/{xp_need})"
+                            )
+                            if xp_res.streak_multiplier > 1.0:
+                                xp_lines.append(
+                                    f"🔥 Hard-exercise streak ×{xp_res.streak_multiplier:.1f} XP bonus!"
+                                )
+                            if new_level > old_level:
+                                xp_lines.append(
+                                    f"🎉 *LEVEL UP!* {skill.name} is now *Level {new_level}*"
+                                )
     except Exception as e:
         logger.error(f"Failed to save/check test results: {e}")
 
@@ -728,6 +944,14 @@ async def _show_test_results(context, chat_id, state) -> None:
         progression_text=progression_text,
         streak_text=streak_text,
     )
+
+    if new_achievements:
+        results_text += "\n\n🏅 *Achievement unlocked!*"
+        for a in new_achievements:
+            results_text += f"\n{a.emoji} *{a.name}* — {a.description}"
+
+    if xp_lines:
+        results_text += "\n\n" + "\n".join(xp_lines)
 
     state["test_active"] = False
     state["last_test_results"] = merged_results
@@ -865,10 +1089,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message or not update.message.text:
         return
     if is_in_test_mode(context):
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
         await _record_answer(
             context, update.message.chat_id, update.message.text,
             user_id=update.effective_user.id,
-            answer_message_id=update.message.message_id,
+            answer_message_id=None,
         )
     else:
         await update.message.reply_text(
@@ -886,4 +1114,59 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
         buttons.append([InlineKeyboardButton(
             f"🧠 {info['name']}", callback_data=f"exercise:{info['type']}",
         )])
+    buttons.append([
+        InlineKeyboardButton("🏅 Achievements", callback_data="menu:achievements"),
+        InlineKeyboardButton("🏆 Leaderboard", callback_data="menu:leaderboard"),
+    ])
     return InlineKeyboardMarkup(buttons)
+
+
+async def handle_menu_callback(query, context, data: str) -> None:
+    """Main-menu shortcuts to features that also exist as commands."""
+    action = data.split(":")[1]
+    user = query.from_user
+    if action == "achievements":
+        async with get_session() as session:
+            db_user = await UserRepository(session).get_by_telegram_id(user.id)
+            unlocked = (
+                await AchievementRepository(session).get_unlocked(db_user.id)
+                if db_user else {}
+            )
+        lines = [f"🏅 *Achievements — {len(unlocked)}/{len(ACHIEVEMENTS)}*\n"]
+        for a in ACHIEVEMENTS:
+            if a.code in unlocked:
+                lines.append(f"{a.emoji} *{a.name}* — {a.description}  ✅")
+            else:
+                lines.append(f"🔒 {a.name} — {a.description}")
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]])
+        await query.edit_message_text(
+            "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+        )
+    elif action == "leaderboard":
+        async with get_session() as session:
+            db_user = await UserRepository(session).get_by_telegram_id(user.id)
+            opted_in = bool(db_user and db_user.leaderboard_opt_in)
+            board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
+        toggle = (
+            InlineKeyboardButton("🚪 Leave leaderboard", callback_data="lb:leave")
+            if opted_in
+            else InlineKeyboardButton("✋ Join leaderboard", callback_data="lb:join")
+        )
+        kb = InlineKeyboardMarkup([
+            [toggle],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ])
+        await query.edit_message_text(
+            _format_leaderboard(board, user.id),
+            parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+        )
+
+
+# Callback routing table: prefix of callback_data -> handler(query, context, data).
+# To add a new exercise flow, register its prefix here (usually the
+# exercise_type string used in its keyboards).
+CALLBACK_ROUTES = {
+    "word_memo": handle_word_memo_callback,
+    "lb": handle_leaderboard_callback,
+    "menu": handle_menu_callback,
+}

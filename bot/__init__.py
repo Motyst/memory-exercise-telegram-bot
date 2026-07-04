@@ -19,9 +19,14 @@ from .handlers import (
     stats_command,
     history_command,
     exercises_command,
+    achievements_command,
+    leaderboard_command,
+    level_command,
     callback_handler,
     text_message_handler,
 )
+from .admin import admin_command
+from .features import load_feature_flags
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,10 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("history", history_command))
     application.add_handler(CommandHandler("exercises", exercises_command))
+    application.add_handler(CommandHandler("achievements", achievements_command))
+    application.add_handler(CommandHandler("leaderboard", leaderboard_command))
+    application.add_handler(CommandHandler("level", level_command))
+    application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler)
@@ -44,6 +53,7 @@ async def on_startup(application: Application) -> None:
     logger.info("Starting Mental Training Bot...")
     await init_db()
     logger.info("Database initialized")
+    await load_feature_flags()
     bot_info = await application.bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
 
@@ -59,6 +69,10 @@ def create_application() -> Application:
     application = (
         Application.builder()
         .token(settings.telegram_bot_token)
+        # Process updates concurrently — without this, PTB handles updates
+        # one at a time and any await (e.g. the 2s answer-grace sleep) blocks
+        # EVERY user. Required for multi-user scale.
+        .concurrent_updates(True)
         .post_init(on_startup)
         .post_shutdown(on_shutdown)
         .build()

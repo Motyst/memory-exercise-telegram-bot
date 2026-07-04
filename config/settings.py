@@ -13,18 +13,23 @@ load_dotenv()
 
 class Settings:
     """Application settings loaded from environment variables."""
-    
+
     def __init__(self):
         # Telegram
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-        
+
         # Database
         self.database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./mental_training.db")
-        
+
         # Bot Settings
         self.bot_name = os.getenv("BOT_NAME", "MentalTrainingBot")
         self.max_word_pairs = int(os.getenv("MAX_WORD_PAIRS", "100"))
         self.default_word_pairs = int(os.getenv("DEFAULT_WORD_PAIRS", "10"))
+
+        # Admin: comma-separated Telegram user IDs with access to /admin
+        self.admin_ids: set[int] = {
+            int(x) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip()
+        }
 
 
 @lru_cache()

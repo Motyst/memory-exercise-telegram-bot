@@ -277,8 +277,8 @@ async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             lines.append(f"🔥 Hard-exercise streak: {row.hard_streak} (XP bonus active)")
         lines.append("")
     lines.append(
-        "💡 _Harder tests = more XP: more pairs, higher difficulty, speed mode,\n"
-        "better accuracy. Easy tests give less XP as you level up._"
+        "💡 _Harder tests = more XP: more pairs, higher difficulty, speed mode, "
+        "better accuracy.\nEasy tests give less XP as you level up._"
     )
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 

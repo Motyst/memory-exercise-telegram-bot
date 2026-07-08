@@ -27,6 +27,7 @@ from .handlers import (
 )
 from .admin import admin_command
 from .features import load_feature_flags
+from .menu import sync_command_menu
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ async def on_startup(application: Application) -> None:
     await init_db()
     logger.info("Database initialized")
     await load_feature_flags()
+    await sync_command_menu(application.bot)
     bot_info = await application.bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
 

@@ -21,6 +21,7 @@ from database import (
 from database.models import utcnow
 from .access import admin_only
 from .features import is_xp_enabled, set_xp_enabled
+from .menu import sync_command_menu
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ async def _admin_xp(update: Update, args: list[str]) -> None:
         return
     enabled = args[0].lower() == "on"
     await set_xp_enabled(enabled)
+    # Keep the command menu in sync (/level shown only while XP is on)
+    await sync_command_menu(update.get_bot())
     if enabled:
         await update.message.reply_text(
             "⭐ XP system ON — users see XP gains, levels and /level again."

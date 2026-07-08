@@ -192,7 +192,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if stats["by_type"]:
         text += "\n*By Exercise Type:*\n"
         for t, c in stats["by_type"].items():
-            text += f"  • {t}: {c}\n"
+            text += f"  • {t.replace('_', ' ').title()}: {c}\n"
     if stats["by_difficulty"]:
         text += "\n*By Difficulty:*\n"
         for d, c in stats["by_difficulty"].items():

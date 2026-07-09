@@ -91,24 +91,51 @@ Advanced Ace. 18 total. Achievements are never checked on retry rounds.
 ## VPS operations
 
 ```bash
-ssh root@5.78.218.169
+ssh root@<VPS_IP>
 
 systemctl status mental_training_bot          # is it running?
 systemctl restart mental_training_bot         # after any code/config change
 journalctl -u mental_training_bot -n 50 --no-pager   # recent logs
 
-# deploy latest code
+# deploy latest code (normal path — commit + push locally first)
 cd /root/mental_training_bot && git pull && systemctl restart mental_training_bot
+
+# watch logs live while testing a command in Telegram
+journalctl -u mental_training_bot -n 0 -f
 
 # backup the database (do this before risky changes!)
 cp /root/mental_training_bot/mental_training.db /root/backup_$(date +%F).db
 ```
+
+Normal deploy flow is always: edit on laptop → commit → push to GitHub → `git pull`
+on VPS → restart. Avoid editing files directly on the VPS — those edits sit
+uncommitted and cause `git pull` merge conflicts later (local changes would be
+overwritten). If a stray one-off edit did happen on the VPS and you're sure
+GitHub's version supersedes it: `git checkout -- <file>` before pulling.
+
+One-off single-file push without a full deploy cycle (e.g. testing a tiny
+change before committing) — from a local Git Bash / PowerShell terminal:
+
+```bash
+scp bot/handlers.py root@<VPS_IP>:/root/mental_training_bot/bot/handlers.py
+ssh root@<VPS_IP> "systemctl restart mental_training_bot"
+```
+
+Still commit + push the same change on the laptop afterward, or the VPS
+diverges from GitHub again.
 
 `.env` on the VPS needs:
 
 ```
 TELEGRAM_BOT_TOKEN=...
 ADMIN_TELEGRAM_IDS=<your telegram id>    # comma-separated if several admins
+```
+
+Add/edit a value without opening an editor:
+
+```bash
+echo 'ADMIN_TELEGRAM_IDS=123456789' >> /root/mental_training_bot/.env
+systemctl restart mental_training_bot   # required to pick up .env changes
 ```
 
 DB schema changes apply automatically at startup (migrations + backfills run

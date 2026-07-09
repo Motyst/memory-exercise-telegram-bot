@@ -99,7 +99,7 @@ st.dataframe(progress, use_container_width=True)
 venv/bin/streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0
 ```
 
-Open `http://5.78.218.169:8501`. To keep it running, copy the bot's systemd
+Open `http://<VPS_IP>:8501`. To keep it running, copy the bot's systemd
 service to `mental_training_dashboard.service` and change `ExecStart` to the
 streamlit command above.
 
@@ -114,7 +114,7 @@ streamlit command above.
 
 - Password gate above is fine for a single-admin tool. If exposing publicly,
   put it behind HTTPS (Caddy/nginx reverse proxy) or bind to `127.0.0.1` and
-  access via SSH tunnel: `ssh -L 8501:localhost:8501 root@5.78.218.169`.
+  access via SSH tunnel: `ssh -L 8501:localhost:8501 root@<VPS_IP>`.
 - Keep the read-only `mode=ro` connection string — the dashboard must never
   write to the bot's DB.
 

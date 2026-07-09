@@ -8,7 +8,7 @@ fast as the session table grows.
 
 from datetime import datetime, timedelta, date
 from typing import Optional
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -19,10 +19,22 @@ from .models import (
 # Score percentage expression reused across queries.
 _PCT = ExerciseSession.score * 100.0 / ExerciseSession.max_score
 
-# Filter for completed, scoreable test sessions.
-_IS_SCORED_TEST = and_(
+# Quiz round type stored in parameters JSON: "test" | "reverse" | "retry".
+_ROUND_MODE = ExerciseSession.parameters["mode"].as_string()
+
+# Any session that produced a score (includes retry-mistakes rounds).
+_HAS_SCORE = and_(
     ExerciseSession.max_score.isnot(None),
     ExerciseSession.max_score > 0,
+)
+
+# Filter for real tests: scored, and not a retry-mistakes round. Retries are
+# practice on a subset of pairs — counting them would inflate test counts and
+# average scores (stats, leaderboard, personal bests). Reverse quizzes DO
+# count — they test the full set, just column-flipped.
+_IS_SCORED_TEST = and_(
+    _HAS_SCORE,
+    or_(_ROUND_MODE.is_(None), _ROUND_MODE != "retry"),
 )
 
 
@@ -167,41 +179,35 @@ class ExerciseSessionRepository:
         return list(result.scalars().all())
 
     async def get_user_stats(self, user_id: int) -> dict:
-        """Aggregated user statistics — computed in SQL."""
-        stats = {
-            "total_sessions": 0,
-            "by_type": {},
-            "by_difficulty": {},
-            "test_sessions": 0,
-            "avg_score": 0.0,
-            "best_score": 0.0,
-            "latest_score": 0.0,
+        """
+        Test statistics broken down per difficulty — computed in SQL.
+        Retry-mistakes rounds are excluded (see _IS_SCORED_TEST).
+
+        Returns {
+            "tests_total": int,
+            "by_difficulty": {difficulty: {"tests", "avg_pct", "best_pct"}},
+            "latest_score": float,
         }
+        """
+        stats = {"tests_total": 0, "by_difficulty": {}, "latest_score": 0.0}
 
-        by_type = await self.session.execute(
-            select(ExerciseSession.exercise_type, func.count())
-            .where(ExerciseSession.user_id == user_id)
-            .group_by(ExerciseSession.exercise_type)
-        )
-        for exercise_type, count in by_type:
-            stats["by_type"][exercise_type.value] = count
-            stats["total_sessions"] += count
-
-        by_difficulty = await self.session.execute(
-            select(ExerciseSession.difficulty, func.count())
-            .where(ExerciseSession.user_id == user_id)
+        rows = await self.session.execute(
+            select(
+                ExerciseSession.difficulty,
+                func.count(), func.avg(_PCT), func.max(_PCT),
+            )
+            .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
             .group_by(ExerciseSession.difficulty)
         )
-        stats["by_difficulty"] = {d: c for d, c in by_difficulty}
+        for difficulty, count, avg_pct, best_pct in rows:
+            stats["by_difficulty"][difficulty] = {
+                "tests": count,
+                "avg_pct": avg_pct or 0.0,
+                "best_pct": best_pct or 0.0,
+            }
+            stats["tests_total"] += count
 
-        test_row = (await self.session.execute(
-            select(func.count(), func.avg(_PCT), func.max(_PCT))
-            .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
-        )).one()
-        if test_row[0]:
-            stats["test_sessions"] = test_row[0]
-            stats["avg_score"] = test_row[1] or 0.0
-            stats["best_score"] = test_row[2] or 0.0
+        if stats["tests_total"]:
             latest = (await self.session.execute(
                 select(_PCT)
                 .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
@@ -256,6 +262,7 @@ class ExerciseSessionRepository:
                 "date": sess.started_at,
                 "difficulty": sess.difficulty,
                 "count": params.get("count", "?"),
+                "mode": params.get("mode", "test"),
                 "score": sess.score or 0,
                 "max_score": sess.max_score,
                 "pct": (sess.score or 0) / sess.max_score * 100,
@@ -367,7 +374,10 @@ class ExerciseSessionRepository:
         ]
 
     async def get_sessions_for_export(self) -> list[dict]:
-        """All scored test sessions joined with user info, for CSV export."""
+        """
+        All scored sessions (including retry rounds, tagged in "mode") joined
+        with user info, for CSV export — filter by mode in the spreadsheet.
+        """
         result = await self.session.execute(
             select(
                 User.telegram_id, User.first_name, User.username,
@@ -376,7 +386,7 @@ class ExerciseSessionRepository:
                 ExerciseSession.max_score, ExerciseSession.started_at,
             )
             .join(User, ExerciseSession.user_id == User.id)
-            .where(_IS_SCORED_TEST)
+            .where(_HAS_SCORE)
             .order_by(ExerciseSession.started_at)
         )
         rows = []
@@ -387,6 +397,7 @@ class ExerciseSessionRepository:
                 "name": r.first_name or r.username or "",
                 "exercise": r.exercise_type.value,
                 "difficulty": r.difficulty,
+                "mode": params.get("mode", "test"),
                 "pairs": params.get("count", ""),
                 "score": r.score,
                 "max_score": r.max_score,

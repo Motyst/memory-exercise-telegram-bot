@@ -145,7 +145,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         f"{level_line}"
         "/achievements - Your achievements\n"
         "/leaderboard - Compare with others (opt-in)\n"
-        "/exercises - Available exercises\n\n"
+        "/exercises - Available exercises\n"
+        "/settings - Preferences (compact results)\n\n"
         "*Modes:*\n"
         "📝 *Training* — Study at your own pace\n"
         "🎯 *Test* — Study, then quiz (normal or ⚡ speed)\n"
@@ -170,9 +171,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             if is_xp_enabled() else []
         )
 
-    if stats["total_sessions"] == 0:
+    if stats["tests_total"] == 0:
         await update.message.reply_text(
-            "📊 *Your Statistics*\n\nNo training sessions yet.\nStart your first exercise to begin tracking!",
+            "📊 *Your Statistics*\n\nNo tests yet.\nComplete your first test to begin tracking!",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -188,24 +189,18 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if skill:
             level, _, _ = level_from_xp(row.xp)
             text += f"{skill.emoji} *{skill.name}:* Level {level} · {row.xp:,} XP\n"
-    text += f"*Total Sessions:* {stats['total_sessions']}\n"
-    if stats["by_type"]:
-        text += "\n*By Exercise Type:*\n"
-        for t, c in stats["by_type"].items():
-            text += f"  • {t.replace('_', ' ').title()}: {c}\n"
-    if stats["by_difficulty"]:
-        text += "\n*By Difficulty:*\n"
-        for d, c in stats["by_difficulty"].items():
-            emoji = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}.get(d, "⚪")
-            text += f"  {emoji} {d.capitalize()}: {c}\n"
-    if stats["test_sessions"] > 0:
+
+    text += f"\n🎯 *Tests: {stats['tests_total']}*\n"
+    for d in ("beginner", "intermediate", "advanced"):
+        row = stats["by_difficulty"].get(d)
+        if not row:
+            continue
+        emoji = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}[d]
         text += (
-            "\n🎯 *Test Mode Scores:*\n"
-            f"  Tests taken: {stats['test_sessions']}\n"
-            f"  Average score: {stats['avg_score']:.0f}%\n"
-            f"  Best score: {stats['best_score']:.0f}%\n"
-            f"  Latest score: {stats['latest_score']:.0f}%\n"
+            f"{emoji} {d.capitalize()} — {row['tests']} test{'s' if row['tests'] != 1 else ''} · "
+            f"avg {row['avg_pct']:.0f}% · best {row['best_pct']:.0f}%\n"
         )
+    text += f"\nLatest score: {stats['latest_score']:.0f}%"
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 
@@ -232,9 +227,10 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     for i, h in enumerate(history, 1):
         date_str = h["date"].strftime("%b %d, %H:%M") if h["date"] else "?"
         diff_emoji = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}.get(h["difficulty"], "⚪")
+        reverse_tag = " 🔀" if h.get("mode") == "reverse" else ""
         lines.append(
             f"{i}. {date_str}  {diff_emoji} {h['count']} pairs  "
-            f"*{h['score']}/{h['max_score']}* ({h['pct']:.0f}%)"
+            f"*{h['score']}/{h['max_score']}* ({h['pct']:.0f}%){reverse_tag}"
         )
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
@@ -283,6 +279,24 @@ async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
+def _format_achievements(unlocked: dict) -> str:
+    """Achievement list, phone-friendly: unlocked entries get the description
+    and unlock date on their own indented lines."""
+    unlocked_count = sum(1 for a in ACHIEVEMENTS if a.code in unlocked)
+    lines = [f"🏅 *Achievements — {unlocked_count}/{len(ACHIEVEMENTS)}*\n"]
+    for a in ACHIEVEMENTS:
+        if a.code in unlocked:
+            ts = unlocked[a.code]
+            lines.append(f"{a.emoji} *{a.name}* ✅")
+            lines.append(f"      _{a.description}_")
+            if ts:
+                lines.append(f"      📅 {ts.strftime('%b %d, %Y')}")
+            lines.append("")
+        else:
+            lines.append(f"🔒 {a.name} — {a.description}")
+    return "\n".join(lines).rstrip()
+
+
 async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     async with get_session() as session:
@@ -291,15 +305,9 @@ async def achievements_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await AchievementRepository(session).get_unlocked(db_user.id)
             if db_user else {}
         )
-
-    lines = [f"🏅 *Achievements — {len(unlocked)}/{len(ACHIEVEMENTS)}*\n"]
-    for a in ACHIEVEMENTS:
-        if a.code in unlocked:
-            date_str = unlocked[a.code].strftime("%b %d, %Y")
-            lines.append(f"{a.emoji} *{a.name}* — {a.description}  ✅ _{date_str}_")
-        else:
-            lines.append(f"🔒 {a.name} — {a.description}")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(
+        _format_achievements(unlocked), parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -637,6 +645,7 @@ async def generate_word_memo_test(query, context, difficulty, count) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
+    set_user_state(context, "test_round_mode", "test")
 
     study_text = exercise.format_pairs_text_for_test(
         pairs, difficulty, countdown_seconds, speed_mode=speed,
@@ -833,11 +842,17 @@ async def _show_test_results(context, chat_id, state) -> None:
     total = len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
+    # "test" (fresh) | "reverse" | "retry" — stored in session parameters so
+    # stats/leaderboard can exclude retry rounds (practice, not a real test).
+    round_mode = state.get("test_round_mode", "test")
+    is_retry = round_mode == "retry"
+
     # Personal best check + streak update + achievements + XP
     personal_best_text = None
     streak_text = None
     new_achievements = []
     xp_lines = []
+    compact = False
     try:
         async with get_session() as session:
             user_repo = UserRepository(session)
@@ -845,6 +860,7 @@ async def _show_test_results(context, chat_id, state) -> None:
             achievement_repo = AchievementRepository(session)
             db_user = await user_repo.get_by_telegram_id(chat_id)
             if db_user:
+                compact = (db_user.preferences or {}).get("compact_results", False)
                 difficulty_value = difficulty.value
                 prev_best = await session_repo.get_personal_best(
                     db_user.id, difficulty_value, len(pairs),
@@ -855,14 +871,16 @@ async def _show_test_results(context, chat_id, state) -> None:
                     user_id=db_user.id,
                     exercise_type=ExerciseType.WORD_MEMORIZATION,
                     difficulty=difficulty_value,
-                    parameters={"count": len(pairs), "mode": "test"},
+                    parameters={"count": len(pairs), "mode": round_mode},
                     score=correct_count, max_score=total, completed=True,
                 )
-                # Personal best
-                if prev_best is not None and score_pct > prev_best:
-                    personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
-                elif prev_best is None:
-                    personal_best_text = "🏆 *First test at this level — benchmark set!*"
+                # Personal best — not on retries: the merged score mixes the
+                # baseline round with a redo, not comparable to a fresh test.
+                if not is_retry:
+                    if prev_best is not None and score_pct > prev_best:
+                        personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
+                    elif prev_best is None:
+                        personal_best_text = "🏆 *First test at this level — benchmark set!*"
                 # Streak
                 streak_info = await user_repo.update_streak(chat_id)
                 if streak_info["is_first_today"]:
@@ -873,23 +891,25 @@ async def _show_test_results(context, chat_id, state) -> None:
                         streak_text = f"🔥 *{s}-day streak — new record!*"
                     else:
                         streak_text = f"🔥 *{s}-day streak!* Keep it up!"
-                # Achievements
-                total_tests = await session_repo.count_completed_tests(db_user.id)
-                ctx = AchievementContext(
-                    score_pct=score_pct,
-                    pair_count=len(pairs),
-                    difficulty=difficulty_value,
-                    speed_mode=state.get("speed_mode", False),
-                    total_tests=total_tests,
-                    streak=streak_info["streak"],
-                    longest_streak=streak_info["longest"],
-                )
-                unlocked = await achievement_repo.get_unlocked_codes(db_user.id)
-                new_achievements = evaluate_achievements(ctx, unlocked)
-                if new_achievements:
-                    await achievement_repo.unlock(
-                        db_user.id, [a.code for a in new_achievements]
+                # Achievements — skipped on retries so a retried-to-100% score
+                # can't farm perfect-score achievements.
+                if not is_retry:
+                    total_tests = await session_repo.count_completed_tests(db_user.id)
+                    ctx = AchievementContext(
+                        score_pct=score_pct,
+                        pair_count=len(pairs),
+                        difficulty=difficulty_value,
+                        speed_mode=state.get("speed_mode", False),
+                        total_tests=total_tests,
+                        streak=streak_info["streak"],
+                        longest_streak=streak_info["longest"],
                     )
+                    unlocked = await achievement_repo.get_unlocked_codes(db_user.id)
+                    new_achievements = evaluate_achievements(ctx, unlocked)
+                    if new_achievements:
+                        await achievement_repo.unlock(
+                            db_user.id, [a.code for a in new_achievements]
+                        )
                 # XP — based on THIS round's questions (a fresh test or
                 # reverse quiz = full set; retry-mistakes = just the retried
                 # subset, so retries can't farm full-test XP).
@@ -923,7 +943,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                                 f"⭐ *+{xp_res.xp} XP* {skill.emoji} {skill.name} — "
                                 f"Level {new_level} ({xp_into}/{xp_need})"
                             )
-                            if xp_res.streak_multiplier > 1.0:
+                            if xp_res.streak_multiplier > 1.0 and not compact:
                                 xp_lines.append(
                                     f"🔥 Hard-exercise streak ×{xp_res.streak_multiplier:.1f} XP bonus!"
                                 )
@@ -943,6 +963,7 @@ async def _show_test_results(context, chat_id, state) -> None:
         personal_best_text=personal_best_text,
         progression_text=progression_text,
         streak_text=streak_text,
+        compact=compact,
     )
 
     if new_achievements:
@@ -1005,6 +1026,7 @@ async def _start_retry_mistakes(query, context) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", correct_results)
+    set_user_state(context, "test_round_mode", "retry")
 
     n = len(quiz_items)
     await query.edit_message_text(
@@ -1067,6 +1089,7 @@ async def _start_reverse_quiz(query, context) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
+    set_user_state(context, "test_round_mode", "reverse")
 
     await query.edit_message_text(
         f"🔀 *Reverse Quiz — {len(quiz_items)} pairs*\n\n"
@@ -1132,15 +1155,9 @@ async def handle_menu_callback(query, context, data: str) -> None:
                 await AchievementRepository(session).get_unlocked(db_user.id)
                 if db_user else {}
             )
-        lines = [f"🏅 *Achievements — {len(unlocked)}/{len(ACHIEVEMENTS)}*\n"]
-        for a in ACHIEVEMENTS:
-            if a.code in unlocked:
-                lines.append(f"{a.emoji} *{a.name}* — {a.description}  ✅")
-            else:
-                lines.append(f"🔒 {a.name} — {a.description}")
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]])
         await query.edit_message_text(
-            "\n".join(lines), parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
+            _format_achievements(unlocked), parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
         )
     elif action == "leaderboard":
         async with get_session() as session:
@@ -1162,6 +1179,59 @@ async def handle_menu_callback(query, context, data: str) -> None:
         )
 
 
+# ============================================================================
+# Settings (/settings)
+# ============================================================================
+
+def _settings_text_and_keyboard(preferences: dict) -> tuple[str, InlineKeyboardMarkup]:
+    """Shared by /settings and the settings callback. To expose a toggle
+    somewhere else (e.g. a button under test results), reuse this keyboard or
+    send callback_data "settings:toggle_compact" from any other keyboard."""
+    compact = preferences.get("compact_results", False)
+    text = (
+        "⚙️ *Settings*\n\n"
+        "📋 *Compact test results*\n"
+        "_On: results show only score, difficulty and the word pairs.\n"
+        "Off: full results with streak, personal best and tips._\n\n"
+        f"Currently: *{'On ✅' if compact else 'Off'}*"
+    )
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            f"📋 Compact results: {'✅ On' if compact else '⬜ Off'}",
+            callback_data="settings:toggle_compact",
+        )
+    ]])
+    return text, kb
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    async with get_session() as session:
+        db_user = await UserRepository(session).get_by_telegram_id(user.id)
+        prefs = (db_user.preferences or {}) if db_user else {}
+    text, kb = _settings_text_and_keyboard(prefs)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+
+
+async def handle_settings_callback(query, context, data: str) -> None:
+    action = data.split(":")[1]
+    user = query.from_user
+    if action == "toggle_compact":
+        async with get_session() as session:
+            user_repo = UserRepository(session)
+            db_user = await user_repo.get_by_telegram_id(user.id)
+            if not db_user:
+                await query.edit_message_text("Use /start first.")
+                return
+            current = (db_user.preferences or {}).get("compact_results", False)
+            db_user = await user_repo.update_preferences(
+                user.id, {"compact_results": not current}
+            )
+            prefs = db_user.preferences or {}
+        text, kb = _settings_text_and_keyboard(prefs)
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+
+
 # Callback routing table: prefix of callback_data -> handler(query, context, data).
 # To add a new exercise flow, register its prefix here (usually the
 # exercise_type string used in its keyboards).
@@ -1169,4 +1239,5 @@ CALLBACK_ROUTES = {
     "word_memo": handle_word_memo_callback,
     "lb": handle_leaderboard_callback,
     "menu": handle_menu_callback,
+    "settings": handle_settings_callback,
 }

@@ -329,7 +329,9 @@ class WordMemorizationExercise(BaseExercise):
         personal_best_text: str | None = None,
         progression_text: str | None = None,
         streak_text: str | None = None,
+        compact: bool = False,
     ) -> str:
+        """compact=True (user setting): only score header, pairs and typo legend."""
         correct_count = sum(1 for r in results if r["correct"])
         total = len(results)
 
@@ -339,17 +341,18 @@ class WordMemorizationExercise(BaseExercise):
             f"Score: *{correct_count}/{total}*\n",
         ]
 
-        # Streak notification
-        if streak_text:
-            lines.append(streak_text)
-            lines.append("")
+        if not compact:
+            # Streak notification
+            if streak_text:
+                lines.append(streak_text)
+                lines.append("")
 
-        # Personal best notification (#6)
-        if personal_best_text:
-            lines.append(personal_best_text)
-            lines.append("")
+            # Personal best notification (#6)
+            if personal_best_text:
+                lines.append(personal_best_text)
+                lines.append("")
 
-        lines.append("*Original pairs with your answers:*\n")
+            lines.append("*Original pairs with your answers:*\n")
 
         result_by_pair = {r["pair_index"]: r for r in results}
         for i, (word1, word2) in enumerate(pairs):
@@ -365,19 +368,20 @@ class WordMemorizationExercise(BaseExercise):
             if (i + 1) % 10 == 0 and (i + 1) < len(pairs):
                 lines.append("———————————")
 
-        # Summary
-        if correct_count == total:
-            lines.append("\n🎉 *Perfect score! Amazing memory!*")
-        elif correct_count >= total * 0.8:
-            lines.append("\n👏 *Great job! Almost perfect!*")
-        elif correct_count >= total * 0.5:
-            lines.append("\n💪 *Good effort! Keep practicing!*")
-        else:
-            lines.append("\n🔄 *Keep training — you'll improve!*")
+        if not compact:
+            # Summary
+            if correct_count == total:
+                lines.append("\n🎉 *Perfect score! Amazing memory!*")
+            elif correct_count >= total * 0.8:
+                lines.append("\n👏 *Great job! Almost perfect!*")
+            elif correct_count >= total * 0.5:
+                lines.append("\n💪 *Good effort! Keep practicing!*")
+            else:
+                lines.append("\n🔄 *Keep training — you'll improve!*")
 
-        # Progressive difficulty suggestion (#3)
-        if progression_text:
-            lines.append(progression_text)
+            # Progressive difficulty suggestion (#3)
+            if progression_text:
+                lines.append(progression_text)
 
         # Legend for fuzzy
         if any(r.get("fuzzy") for r in results if r["correct"]):

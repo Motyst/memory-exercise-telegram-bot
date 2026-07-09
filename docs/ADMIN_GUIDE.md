@@ -59,6 +59,12 @@ gives 154 XP; a 100-pair advanced speed test gives 666 XP.
 Retries only give XP for the retried questions — no farming full-test XP by
 redoing mistakes. Reverse quiz counts as a full test.
 
+**Round types**: every quiz round is saved with a `mode` — `test`, `reverse`
+or `retry`. Reverse quizzes count as real tests everywhere. Retry rounds are
+**excluded** from stats, leaderboard, personal bests and achievements (they're
+practice on a subset), but still appear in `/admin export` with their mode so
+you can see them in the CSV.
+
 After editing constants: `systemctl restart mental_training_bot`. Existing
 XP totals stay; only future gains change.
 
@@ -70,7 +76,11 @@ the new bar automatically on first XP gain.
 
 Definitions: `gamification/achievements.py`. Add one = append to the
 `ACHIEVEMENTS` list (code, emoji, name, description, check lambda) + restart.
-No DB change needed. Never reuse/rename a `code` — unlocks are stored by code.
+No DB change needed. Never reuse/rename a `code` — unlocks are stored by code
+(display names/descriptions can change freely).
+
+Tiered achievements (I/II/III by pair count, 10/30/50+): Flawless, Speedster,
+Advanced Ace. 18 total. Achievements are never checked on retry rounds.
 
 ## Users & data
 

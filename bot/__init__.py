@@ -22,6 +22,7 @@ from .handlers import (
     achievements_command,
     leaderboard_command,
     level_command,
+    settings_command,
     callback_handler,
     text_message_handler,
 )
@@ -42,6 +43,7 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("achievements", achievements_command))
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("level", level_command))
+    application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(

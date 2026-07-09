@@ -72,7 +72,7 @@ NEXT_DIFFICULTY = {
 NEXT_COUNT = {5: 10, 10: 15, 15: 20, 20: 30, 30: 50, 50: 75, 75: 100}
 
 DIFFICULTY_NAMES = {
-    Difficulty.BEGINNER: "Beginner (Nouns)",
+    Difficulty.BEGINNER: "Beginner (Everyday Objects)",
     Difficulty.INTERMEDIATE: "Intermediate (Nouns + Verbs)",
     Difficulty.ADVANCED: "Advanced (All Types)",
 }
@@ -120,6 +120,7 @@ class WordMemorizationExercise(BaseExercise):
     def _load_words(self):
         data_dir = Path(__file__).parent.parent / "data"
         word_files = {
+            "concrete_nouns": data_dir / "concrete_nouns.json",
             "nouns": data_dir / "nouns.json",
             "verbs": data_dir / "verbs.json",
             "adjectives": data_dir / "adjectives.json",
@@ -134,7 +135,9 @@ class WordMemorizationExercise(BaseExercise):
 
     def _get_words_for_difficulty(self, difficulty: Difficulty) -> list[str]:
         if difficulty == Difficulty.BEGINNER:
-            return self._words_cache.get("nouns", [])
+            # Concrete, well-known objects only — easiest to visualize.
+            # Fall back to the full noun list if the file is missing.
+            return self._words_cache.get("concrete_nouns") or self._words_cache.get("nouns", [])
         elif difficulty == Difficulty.INTERMEDIATE:
             return self._words_cache.get("nouns", []) + self._words_cache.get("verbs", [])
         else:
@@ -163,8 +166,8 @@ class WordMemorizationExercise(BaseExercise):
         return (
             f"*Mode:* {mode_label}\n\n"
             "*Difficulty levels:*\n"
-            "• 🟢 Beginner — Nouns only\n"
-            "• 🟡 Intermediate — Nouns + Verbs\n"
+            "• 🟢 Beginner — Everyday objects (easy to picture)\n"
+            "• 🟡 Intermediate — All nouns + Verbs\n"
             "• 🔴 Advanced — Nouns + Verbs + Adjectives\n\n"
             "Select your difficulty:"
         )
@@ -194,7 +197,7 @@ class WordMemorizationExercise(BaseExercise):
 
     def get_difficulty_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Beginner (Nouns)", callback_data=f"{self.exercise_type}:diff:beginner")],
+            [InlineKeyboardButton("🟢 Beginner (Everyday Objects)", callback_data=f"{self.exercise_type}:diff:beginner")],
             [InlineKeyboardButton("🟡 Intermediate (Nouns + Verbs)", callback_data=f"{self.exercise_type}:diff:intermediate")],
             [InlineKeyboardButton("🔴 Advanced (All Types)", callback_data=f"{self.exercise_type}:diff:advanced")],
             [InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:start"),

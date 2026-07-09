@@ -19,7 +19,7 @@ The bot trains **word-pair memorization** — one of the most effective exercise
 4. Results shown at the end with score and feedback
 
 ### Key features clients experience:
-- **3 difficulty levels** — starts easy (nouns only), scales up to mixed vocabulary
+- **3 difficulty levels** — starts easy (everyday objects), scales up to mixed vocabulary
 - **Per-question countdown timer** — builds mental speed under pressure
 - **Typo tolerance** — minor spelling mistakes still count as correct, reducing frustration
 - **Retry Mistakes** — re-quizzes only the words they got wrong, reinforcing weak spots

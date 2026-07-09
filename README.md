@@ -6,7 +6,7 @@ Telegram bot for brain training exercises. Currently features a full Word Memori
 
 ### Word Memorization
 - **Modes**: Training (study only) | Test (study → timed disappear → quiz)
-- **Difficulty**: Beginner (nouns) | Intermediate (+verbs) | Advanced (+adjectives)
+- **Difficulty**: Beginner (everyday concrete nouns) | Intermediate (all nouns + verbs) | Advanced (+adjectives)
 - **Pair counts**: 5, 10, 15, 20, 30, 50, 75, 100
 - Per-question timer with auto-skip on timeout
 - Fuzzy matching (Levenshtein ≤2 edits, disabled for short words)

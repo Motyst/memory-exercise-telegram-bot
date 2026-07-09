@@ -42,17 +42,17 @@ ACHIEVEMENTS: list[AchievementDef] = [
     # 90%+ on 5 pairs is much easier than on 30 — tiers keep them meaningful.
     AchievementDef(
         "perfect_score", "💯", "Flawless I",
-        "Score 100% on any test",
+        "100% on any test",
         lambda c: c.score_pct >= 100,
     ),
     AchievementDef(
         "perfect_20", "🎯", "Flawless II",
-        "Score 100% on a test with 20+ pairs",
+        "100% with 20+ pairs",
         lambda c: c.score_pct >= 100 and c.pair_count >= 20,
     ),
     AchievementDef(
         "perfect_50", "💎", "Flawless III",
-        "Score 100% on a test with 50+ pairs",
+        "100% with 50+ pairs",
         lambda c: c.score_pct >= 100 and c.pair_count >= 50,
     ),
     AchievementDef(
@@ -67,32 +67,32 @@ ACHIEVEMENTS: list[AchievementDef] = [
     ),
     AchievementDef(
         "speedster", "⚡", "Speedster I",
-        "Score 90%+ in speed mode (10+ pairs)",
+        "90%+ in speed mode (10+ pairs)",
         lambda c: c.speed_mode and c.score_pct >= 90 and c.pair_count >= 10,
     ),
     AchievementDef(
         "speedster_2", "⚡", "Speedster II",
-        "Score 90%+ in speed mode (30+ pairs)",
+        "90%+ in speed mode (30+ pairs)",
         lambda c: c.speed_mode and c.score_pct >= 90 and c.pair_count >= 30,
     ),
     AchievementDef(
         "speedster_3", "⚡", "Speedster III",
-        "Score 90%+ in speed mode (50+ pairs)",
+        "90%+ in speed mode (50+ pairs)",
         lambda c: c.speed_mode and c.score_pct >= 90 and c.pair_count >= 50,
     ),
     AchievementDef(
         "advanced_ace", "🧠", "Advanced Ace I",
-        "Score 90%+ on Advanced difficulty (10+ pairs)",
+        "90%+ on Advanced (10+ pairs)",
         lambda c: c.difficulty == "advanced" and c.score_pct >= 90 and c.pair_count >= 10,
     ),
     AchievementDef(
         "advanced_ace_2", "🧠", "Advanced Ace II",
-        "Score 90%+ on Advanced difficulty (30+ pairs)",
+        "90%+ on Advanced (30+ pairs)",
         lambda c: c.difficulty == "advanced" and c.score_pct >= 90 and c.pair_count >= 30,
     ),
     AchievementDef(
         "advanced_ace_3", "🧠", "Advanced Ace III",
-        "Score 90%+ on Advanced difficulty (50+ pairs)",
+        "90%+ on Advanced (50+ pairs)",
         lambda c: c.difficulty == "advanced" and c.score_pct >= 90 and c.pair_count >= 50,
     ),
     AchievementDef(

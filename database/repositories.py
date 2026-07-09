@@ -8,7 +8,7 @@ fast as the session table grows.
 
 from datetime import datetime, timedelta, date
 from typing import Optional
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -183,38 +183,47 @@ class ExerciseSessionRepository:
         Test statistics broken down per difficulty — computed in SQL.
         Retry-mistakes rounds are excluded (see _IS_SCORED_TEST).
 
+        "mastered" = biggest pair count with a 90%+ score at that difficulty
+        (a raw best-% would hide the huge gap between acing 5 and 50 pairs).
+
         Returns {
             "tests_total": int,
-            "by_difficulty": {difficulty: {"tests", "avg_pct", "best_pct"}},
-            "latest_score": float,
+            "by_difficulty": {difficulty: {"tests", "mastered"}},  # mastered: int | None
+            "latest_pct": float, "latest_pairs": int | None,
         }
         """
-        stats = {"tests_total": 0, "by_difficulty": {}, "latest_score": 0.0}
+        stats = {
+            "tests_total": 0, "by_difficulty": {},
+            "latest_pct": 0.0, "latest_pairs": None,
+        }
+        pair_count = ExerciseSession.parameters["count"].as_integer()
 
         rows = await self.session.execute(
             select(
                 ExerciseSession.difficulty,
-                func.count(), func.avg(_PCT), func.max(_PCT),
+                func.count(),
+                func.max(case((_PCT >= 90, pair_count))),
             )
             .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
             .group_by(ExerciseSession.difficulty)
         )
-        for difficulty, count, avg_pct, best_pct in rows:
+        for difficulty, count, mastered in rows:
             stats["by_difficulty"][difficulty] = {
                 "tests": count,
-                "avg_pct": avg_pct or 0.0,
-                "best_pct": best_pct or 0.0,
+                "mastered": mastered,
             }
             stats["tests_total"] += count
 
         if stats["tests_total"]:
             latest = (await self.session.execute(
-                select(_PCT)
+                select(_PCT, pair_count)
                 .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
                 .order_by(ExerciseSession.started_at.desc())
                 .limit(1)
-            )).scalar_one_or_none()
-            stats["latest_score"] = latest or 0.0
+            )).one_or_none()
+            if latest:
+                stats["latest_pct"] = latest[0] or 0.0
+                stats["latest_pairs"] = latest[1]
 
         return stats
 

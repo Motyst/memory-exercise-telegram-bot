@@ -196,11 +196,19 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if not row:
             continue
         emoji = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}[d]
+        if row["mastered"]:
+            mastery = f"mastered *{row['mastered']} pairs* ⭐"
+        else:
+            mastery = "no 90%+ yet"
         text += (
             f"{emoji} {d.capitalize()} — {row['tests']} test{'s' if row['tests'] != 1 else ''} · "
-            f"avg {row['avg_pct']:.0f}% · best {row['best_pct']:.0f}%\n"
+            f"{mastery}\n"
         )
-    text += f"\nLatest score: {stats['latest_score']:.0f}%"
+    text += "_Mastered = biggest test scored 90%+_\n"
+    if stats["latest_pairs"]:
+        text += f"\nLatest: {stats['latest_pct']:.0f}% ({stats['latest_pairs']} pairs)"
+    else:
+        text += f"\nLatest score: {stats['latest_pct']:.0f}%"
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 

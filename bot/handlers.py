@@ -7,7 +7,6 @@ import asyncio
 import logging
 import random
 import time
-from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -17,6 +16,7 @@ from database import (
     get_session, UserRepository, ExerciseSessionRepository,
     AchievementRepository, UserSkillRepository, ExerciseType,
 )
+from database.models import utcnow
 from exercises import ExerciseRegistry, Difficulty
 from gamification import (
     ACHIEVEMENTS, AchievementContext, evaluate_achievements,
@@ -115,6 +115,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         if created:
             logger.info(f"New user registered: {user.id} ({user.username})")
+        tests_done = await ExerciseSessionRepository(session).count_completed_tests(db_user.id)
 
     clear_user_state(context)
 
@@ -125,11 +126,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     for info in ExerciseRegistry.list_exercises():
         welcome_text += f"• {info['name']}: {info['description']}\n"
+    show_placement = tests_done == 0
+    if show_placement:
+        welcome_text += "\n📏 New here? Take a 2-minute level test to find your starting difficulty."
     welcome_text += "\nChoose an exercise to get started:"
 
     await update.message.reply_text(
         welcome_text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(show_placement=show_placement),
     )
 
 
@@ -631,7 +635,7 @@ def _build_quiz_items(pairs):
     return quiz_items
 
 
-async def generate_word_memo_test(query, context, difficulty, count) -> None:
+async def generate_word_memo_test(query, context, difficulty, count, round_mode: str = "test") -> None:
     exercise = ExerciseRegistry.get("word_memo")
     recent = await _get_recent_words(query.from_user.id)
     result = await exercise.generate(
@@ -655,7 +659,7 @@ async def generate_word_memo_test(query, context, difficulty, count) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
-    set_user_state(context, "test_round_mode", "test")
+    set_user_state(context, "test_round_mode", round_mode)
 
     study_text = exercise.format_pairs_text_for_test(
         pairs, difficulty, countdown_seconds, speed_mode=speed,
@@ -852,10 +856,12 @@ async def _show_test_results(context, chat_id, state) -> None:
     total = len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
-    # "test" (fresh) | "reverse" | "retry" — stored in session parameters so
-    # stats/leaderboard can exclude retry rounds (practice, not a real test).
+    # "test" (fresh) | "reverse" | "retry" | "placement" — stored in session
+    # parameters so stats/leaderboard can exclude retry and placement rounds
+    # (practice/calibration, not real tests).
     round_mode = state.get("test_round_mode", "test")
     is_retry = round_mode == "retry"
+    is_placement = round_mode == "placement"
 
     # Personal best check + streak update + achievements + XP
     personal_best_text = None
@@ -884,9 +890,9 @@ async def _show_test_results(context, chat_id, state) -> None:
                     parameters={"count": len(pairs), "mode": round_mode},
                     score=correct_count, max_score=total, completed=True,
                 )
-                # Personal best — not on retries: the merged score mixes the
-                # baseline round with a redo, not comparable to a fresh test.
-                if not is_retry:
+                # Personal best — not on retries (merged score mixes baseline
+                # with a redo) and not on placement (one-off calibration).
+                if not is_retry and not is_placement:
                     if prev_best is not None and score_pct > prev_best:
                         personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
                     elif prev_best is None:
@@ -902,8 +908,9 @@ async def _show_test_results(context, chat_id, state) -> None:
                     else:
                         streak_text = f"🔥 *{s}-day streak!* Keep it up!"
                 # Achievements — skipped on retries so a retried-to-100% score
-                # can't farm perfect-score achievements.
-                if not is_retry:
+                # can't farm perfect-score achievements; skipped on placement
+                # (excluded from scored tests entirely).
+                if not is_retry and not is_placement:
                     total_tests = await session_repo.count_completed_tests(db_user.id)
                     ctx = AchievementContext(
                         score_pct=score_pct,
@@ -920,10 +927,23 @@ async def _show_test_results(context, chat_id, state) -> None:
                         await achievement_repo.unlock(
                             db_user.id, [a.code for a in new_achievements]
                         )
+                # Placement: store the recommendation so it survives restarts
+                # and can pre-star the difficulty keyboard later.
+                if is_placement:
+                    rec_diff, rec_count = get_placement_recommendation(score_pct)
+                    await user_repo.update_preferences(chat_id, {
+                        "placement": {
+                            "level": rec_diff.value,
+                            "count": rec_count,
+                            "score": round(score_pct),
+                            "date": utcnow().isoformat(),
+                        }
+                    })
                 # XP — based on THIS round's questions (a fresh test or
                 # reverse quiz = full set; retry-mistakes = just the retried
-                # subset, so retries can't farm full-test XP).
-                if is_xp_enabled():
+                # subset, so retries can't farm full-test XP). None for
+                # placement — calibration, not grind.
+                if is_xp_enabled() and not is_placement:
                     skill_code = EXERCISE_SKILLS.get(ExerciseType.WORD_MEMORIZATION.value)
                     quiz_items = state.get("test_quiz_items", [])
                     if skill_code and quiz_items:
@@ -964,9 +984,12 @@ async def _show_test_results(context, chat_id, state) -> None:
     except Exception as e:
         logger.error(f"Failed to save/check test results: {e}")
 
-    # Progressive difficulty suggestion (#3)
+    # Progressive difficulty suggestion (#3) — not on placement, which makes
+    # its own recommendation below.
     count = state.get("count", len(pairs))
-    progression_text = get_progression_suggestion(difficulty, count, score_pct)
+    progression_text = None
+    if not is_placement:
+        progression_text = get_progression_suggestion(difficulty, count, score_pct)
 
     results_text = exercise.format_test_results(
         pairs, merged_results, difficulty,
@@ -994,10 +1017,29 @@ async def _show_test_results(context, chat_id, state) -> None:
     except Exception as e:
         logger.error(f"Failed to save recent words: {e}")
 
-    has_mistakes = any(not r["correct"] for r in merged_results)
+    if is_placement:
+        rec_diff, rec_count = get_placement_recommendation(score_pct)
+        rec_label = DIFFICULTY_NAMES[rec_diff]
+        results_text += (
+            f"\n\n📏 *Your level:* {_DIFF_EMOJI[rec_diff.value]} *{rec_label}* · "
+            f"*{rec_count} pairs*\n"
+            "This test doesn't count toward your stats — "
+            "your real training starts now!"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                f"🚀 Start: {rec_label}, {rec_count} pairs",
+                callback_data=f"placement:apply:{rec_diff.value}:{rec_count}",
+            )],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ])
+    else:
+        has_mistakes = any(not r["correct"] for r in merged_results)
+        keyboard = exercise.get_results_keyboard(has_mistakes=has_mistakes)
+
     await context.bot.send_message(
         chat_id=chat_id, text=results_text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=exercise.get_results_keyboard(has_mistakes=has_mistakes),
+        reply_markup=keyboard,
     )
 
 
@@ -1115,6 +1157,82 @@ async def _start_reverse_quiz(query, context) -> None:
 
 
 # ============================================================================
+# Placement Test (level calibration for new users)
+# ============================================================================
+
+# One fixed round at the middle difficulty gives the most signal per minute:
+# a beginner bombs it, an expert aces it, everyone else lands in between.
+PLACEMENT_DIFFICULTY = Difficulty.INTERMEDIATE
+PLACEMENT_COUNT = 10
+
+_DIFF_EMOJI = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}
+
+
+def get_placement_recommendation(score_pct: float) -> tuple[Difficulty, int]:
+    """Map placement score to a recommended (difficulty, pair count)."""
+    if score_pct < 50:
+        return Difficulty.BEGINNER, 5
+    if score_pct < 75:
+        return Difficulty.BEGINNER, 10
+    if score_pct < 90:
+        return Difficulty.INTERMEDIATE, 10
+    return Difficulty.ADVANCED, 10
+
+
+async def handle_placement_callback(query, context, data: str) -> None:
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else None
+
+    if action == "start":
+        # Explainer screen — the study list appearing without warning would
+        # waste the (unannounced) memorization countdown.
+        _cancel_question_timer(context, query.from_user.id)
+        state = get_user_state(context)
+        await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
+        clear_user_state(context)
+        await query.edit_message_text(
+            "📏 *Level Test*\n\n"
+            f"One short test to find your starting level:\n"
+            f"• {PLACEMENT_COUNT} word pairs to memorize\n"
+            f"• Then a quiz on each pair ({QUESTION_TIME_LIMIT}s per question)\n"
+            f"• Takes about 2 minutes\n\n"
+            "Your score won't affect stats or the leaderboard — "
+            "it just picks the right level for you.\n\n"
+            "The word list appears as soon as you press Begin. Ready?",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Begin", callback_data="placement:begin")],
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+            ]),
+        )
+
+    elif action == "begin":
+        set_user_state(context, "current_exercise", "word_memo")
+        set_user_state(context, "mode", "test")
+        set_user_state(context, "speed_mode", False)
+        set_user_state(context, "difficulty", PLACEMENT_DIFFICULTY)
+        set_user_state(context, "count", PLACEMENT_COUNT)
+        await generate_word_memo_test(
+            query, context, PLACEMENT_DIFFICULTY, PLACEMENT_COUNT,
+            round_mode="placement",
+        )
+
+    elif action == "apply":
+        # placement:apply:<difficulty>:<count> — start a real test with the
+        # recommended settings in one tap.
+        difficulty = Difficulty(parts[2])
+        count = int(parts[3])
+        state = get_user_state(context)
+        await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
+        set_user_state(context, "current_exercise", "word_memo")
+        set_user_state(context, "mode", "test")
+        set_user_state(context, "speed_mode", False)
+        set_user_state(context, "difficulty", difficulty)
+        set_user_state(context, "count", count)
+        await generate_word_memo_test(query, context, difficulty, count)
+
+
+# ============================================================================
 # Message Handler
 # ============================================================================
 
@@ -1141,8 +1259,12 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # Keyboard Helpers
 # ============================================================================
 
-def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+def get_main_menu_keyboard(show_placement: bool = False) -> InlineKeyboardMarkup:
     buttons = []
+    if show_placement:
+        buttons.append([InlineKeyboardButton(
+            "📏 Find your level (2 min)", callback_data="placement:start",
+        )])
     for info in ExerciseRegistry.list_exercises():
         buttons.append([InlineKeyboardButton(
             f"🧠 {info['name']}", callback_data=f"exercise:{info['type']}",
@@ -1205,12 +1327,13 @@ def _settings_text_and_keyboard(preferences: dict) -> tuple[str, InlineKeyboardM
         "Off: full results with streak, personal best and tips._\n\n"
         f"Currently: *{'On ✅' if compact else 'Off'}*"
     )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
             f"📋 Compact results: {'✅ On' if compact else '⬜ Off'}",
             callback_data="settings:toggle_compact",
-        )
-    ]])
+        )],
+        [InlineKeyboardButton("📏 Retake level test", callback_data="placement:start")],
+    ])
     return text, kb
 
 
@@ -1250,4 +1373,5 @@ CALLBACK_ROUTES = {
     "lb": handle_leaderboard_callback,
     "menu": handle_menu_callback,
     "settings": handle_settings_callback,
+    "placement": handle_placement_callback,
 }

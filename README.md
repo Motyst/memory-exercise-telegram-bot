@@ -14,6 +14,7 @@ Telegram bot for brain training exercises. Currently features a full Word Memori
 - Reverse quiz — flips prompt/answer columns
 - Speed mode — normal (5s/pair) or fast (2.5s/pair) study time
 - Progressive difficulty suggestions at ≥90% score
+- Placement test for new users — one 2-minute calibration round recommends a starting level
 - Personal best tracking with notifications
 - Anti-repeat word selection (rolling 200-word window)
 - **Daily streak tracking** — shown after every test and in `/stats`

@@ -19,7 +19,8 @@ from .models import (
 # Score percentage expression reused across queries.
 _PCT = ExerciseSession.score * 100.0 / ExerciseSession.max_score
 
-# Quiz round type stored in parameters JSON: "test" | "reverse" | "retry".
+# Quiz round type stored in parameters JSON:
+# "test" | "reverse" | "retry" | "placement".
 _ROUND_MODE = ExerciseSession.parameters["mode"].as_string()
 
 # Any session that produced a score (includes retry-mistakes rounds).
@@ -28,13 +29,13 @@ _HAS_SCORE = and_(
     ExerciseSession.max_score > 0,
 )
 
-# Filter for real tests: scored, and not a retry-mistakes round. Retries are
-# practice on a subset of pairs — counting them would inflate test counts and
-# average scores (stats, leaderboard, personal bests). Reverse quizzes DO
+# Filter for real tests: scored, and neither a retry-mistakes round (practice
+# on a subset of pairs — would inflate test counts and average scores) nor a
+# placement round (one-off calibration for new users). Reverse quizzes DO
 # count — they test the full set, just column-flipped.
 _IS_SCORED_TEST = and_(
     _HAS_SCORE,
-    or_(_ROUND_MODE.is_(None), _ROUND_MODE != "retry"),
+    or_(_ROUND_MODE.is_(None), _ROUND_MODE.notin_(("retry", "placement"))),
 )
 
 

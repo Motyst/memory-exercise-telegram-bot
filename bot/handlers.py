@@ -295,6 +295,8 @@ def _format_achievements(unlocked: dict) -> str:
     for a in ACHIEVEMENTS:
         if a.code in unlocked:
             ts = unlocked[a.code]
+            if lines[-1] and not lines[-1].endswith("\n"):
+                lines.append("")
             lines.append(f"{a.emoji} *{a.name}* ✅")
             lines.append(f"      _{a.description}_")
             if ts:

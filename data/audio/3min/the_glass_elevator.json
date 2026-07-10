@@ -1,0 +1,35 @@
+{
+  "title": "The Glass Elevator",
+  "questions": [
+    {
+      "q": "What was on the elevator's button panel?",
+      "options": [
+        "No numbers — only blue squares, each darker than the one above",
+        "Brass numbers from one to ten",
+        "Pictures of sea creatures",
+        "A single red lever"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "Which color left the water first as you sank deeper?",
+      "options": [
+        "Red",
+        "Blue",
+        "Green",
+        "Yellow"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What rose past the elevator in the dark zone?",
+      "options": [
+        "A jellyfish like a glass chandelier, trailing ribbons of cold light",
+        "A cloud of silver bubbles",
+        "A diver with a torch",
+        "A shark circling slowly"
+      ],
+      "answer": 0
+    }
+  ]
+}

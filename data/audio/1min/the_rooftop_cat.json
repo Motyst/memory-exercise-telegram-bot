@@ -1,0 +1,35 @@
+{
+  "title": "The Rooftop Cat",
+  "questions": [
+    {
+      "q": "What did the rising moon look like?",
+      "options": [
+        "Huge and orange as an egg yolk, lifting out of the television antennas",
+        "A thin silver sickle over the chimneys",
+        "Pale and small behind fast clouds",
+        "Blood red and low over the harbor"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What smells climbed up from the street?",
+      "options": [
+        "Broth, ginger, something fried",
+        "Rain on hot asphalt",
+        "Fresh bread and coffee",
+        "Car exhaust and cut grass"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "Where did the cat land after leaping the gap?",
+      "options": [
+        "Beside the warm chimney on the bakery roof",
+        "On the pigeon loft",
+        "On a fire escape",
+        "In a roof garden"
+      ],
+      "answer": 0
+    }
+  ]
+}

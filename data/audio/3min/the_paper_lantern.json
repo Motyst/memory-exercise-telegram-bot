@@ -1,0 +1,35 @@
+{
+  "title": "The Paper Lantern",
+  "questions": [
+    {
+      "q": "What did the girl do at the river steps before lighting the lantern?",
+      "options": [
+        "Stretched it over bamboo ribs and wrote a wish in silver ink on its side",
+        "Tied a red ribbon to its base",
+        "Dipped its edges in wax",
+        "Drew a dragon on it in black ink"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What did the river look like from above?",
+      "options": [
+        "A slow black ribbon strewn with floating lanterns, like a second sky learning its first stars",
+        "A line of gold under stone bridges",
+        "Empty and dark between the lit banks",
+        "White with the wakes of festival boats"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "Where did the lantern come down at dawn?",
+      "options": [
+        "On a grey mountain lake, perfectly still",
+        "In a rice field outside the city",
+        "On a temple roof",
+        "In the branches of a pine tree"
+      ],
+      "answer": 0
+    }
+  ]
+}

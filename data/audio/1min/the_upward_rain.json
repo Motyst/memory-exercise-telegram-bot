@@ -1,0 +1,35 @@
+{
+  "title": "The Upward Rain",
+  "questions": [
+    {
+      "q": "How did people carry their umbrellas in this city?",
+      "options": [
+        "Upside down and low, like baskets",
+        "Two at once, one above and one below",
+        "Strapped to their backs",
+        "They didn't — umbrellas were useless"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What had the flower seller done with her stall?",
+      "options": [
+        "Turned it over, buckets hanging mouth-down so the tulips could drink on the way up",
+        "Covered it with a glass roof",
+        "Moved it under a balcony",
+        "Floated it on ropes above the street"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What rose out of the last puddle before it vanished?",
+      "options": [
+        "Everything it had reflected — a sunset, a flock of geese, one slow airplane",
+        "A cloud of tiny silver fish",
+        "The morning's newspaper, page by page",
+        "Nothing — it simply dried"
+      ],
+      "answer": 0
+    }
+  ]
+}

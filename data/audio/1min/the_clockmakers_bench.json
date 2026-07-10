@@ -1,0 +1,35 @@
+{
+  "title": "The Clockmaker's Bench",
+  "questions": [
+    {
+      "q": "What was holding Mara's hair up?",
+      "options": [
+        "A spare clock hand",
+        "A brass screwdriver",
+        "A red ribbon",
+        "A pair of tweezers"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What did the open watch look like on the bench?",
+      "options": [
+        "A small golden pond",
+        "A tiny silver city",
+        "A flower of gears",
+        "A cracked walnut"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What happened when she nudged the balance wheel?",
+      "options": [
+        "The watch shivered awake, its tiny wheel catching the light like a trapped spark",
+        "A spring flew across the bench",
+        "The watch chimed once and stopped",
+        "The gear slipped off its post"
+      ],
+      "answer": 0
+    }
+  ]
+}

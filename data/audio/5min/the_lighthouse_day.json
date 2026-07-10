@@ -2,34 +2,34 @@
   "title": "The Lighthouse Day",
   "questions": [
     {
-      "q": "How many steps led up the lighthouse tower?",
+      "q": "What did this lighthouse's three flashes tell every captain?",
       "options": [
-        "One hundred and eighteen",
-        "Ninety-nine",
-        "One hundred and forty",
-        "Two hundred and ten"
+        "You are near the island — stand off",
+        "Safe harbor ahead",
+        "Storm coming from the west",
+        "Follow my beam home"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "How did the keeper repaint the tower's seaward wall?",
+      "options": [
+        "Swinging thirty feet up in a bosun's chair, gulls hovering at eye level",
+        "From a tall wooden ladder",
+        "Standing in the supply winch basket",
+        "He left it for the mainland painters"
       ],
       "answer": 0
     },
     {
       "q": "What was in the parcel from the keeper's sister?",
       "options": [
-        "Books and tobacco",
         "A knitted navy jumper and a fruitcake",
+        "Books and tobacco",
         "Wool socks and jam",
         "A pocket watch"
       ],
-      "answer": 1
-    },
-    {
-      "q": "What was the lighthouse's flash pattern?",
-      "options": [
-        "One long flash every five seconds",
-        "Two flashes every ten seconds",
-        "Three flashes every fifteen seconds",
-        "A steady unblinking light"
-      ],
-      "answer": 2
+      "answer": 0
     }
   ]
 }

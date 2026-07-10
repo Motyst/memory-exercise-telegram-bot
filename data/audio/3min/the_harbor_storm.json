@@ -2,34 +2,34 @@
   "title": "The Harbor Storm",
   "questions": [
     {
-      "q": "What color was the trawler that led the boats home?",
+      "q": "What did the air smell of just before the rain hit?",
       "options": [
-        "Blue",
-        "Red",
-        "Green",
-        "Black"
+        "Cold stone, seaweed, and electricity",
+        "Fish and diesel",
+        "Hot tar",
+        "Fresh bread from the chandlery"
       ],
-      "answer": 1
+      "answer": 0
     },
     {
-      "q": "What was the woman in the yellow oilskin stacking?",
+      "q": "What were the two boys chasing across the quay?",
       "options": [
-        "Fish crates",
-        "Sandbags",
-        "Lobster traps",
-        "Firewood"
+        "A runaway bucket the wind kept rolling away",
+        "A loose gull",
+        "A dog that stole a fish",
+        "Their hats"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
-      "q": "How often did the lighthouse beam sweep past?",
+      "q": "Where did you watch the storm from, in the end?",
       "options": [
-        "Every two seconds",
-        "Every five seconds",
-        "Every ten seconds",
-        "Every thirty seconds"
+        "The harbor master's doorway, with the white dog pressed against your leg",
+        "The lighthouse gallery",
+        "Inside the red trawler's cabin",
+        "Under the stone pier"
       ],
-      "answer": 1
+      "answer": 0
     }
   ]
 }

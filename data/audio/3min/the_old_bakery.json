@@ -2,34 +2,34 @@
   "title": "The Old Bakery",
   "questions": [
     {
-      "q": "How many croissants ended up on the tray?",
+      "q": "How did the baker check the sourdough loaves?",
       "options": [
-        "Eight",
-        "Ten",
-        "Twelve",
-        "Fifteen"
+        "Rapped his knuckles on the underside, listening for a hollow knock",
+        "Pressed the crust with his thumb",
+        "Smelled each one in turn",
+        "Weighed them on a brass scale"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
       "q": "Which jar on the shelf was nearly empty?",
       "options": [
-        "Poppy seeds",
         "Dried cherries",
+        "Poppy seeds",
         "Walnuts",
         "Sesame"
       ],
-      "answer": 1
+      "answer": 0
     },
     {
-      "q": "What did the bakery cat look like?",
+      "q": "What did the first customer of the day buy?",
       "options": [
-        "Black with green eyes",
-        "Grey and striped",
-        "White with a black tail",
-        "Ginger with a white chest"
+        "The same seeded rye she has bought every morning for thirty years",
+        "Two warm croissants",
+        "The braided loaf with the egg wash",
+        "A round sourdough"
       ],
-      "answer": 3
+      "answer": 0
     }
   ]
 }

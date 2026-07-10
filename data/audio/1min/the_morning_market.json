@@ -2,34 +2,34 @@
   "title": "The Morning Market",
   "questions": [
     {
-      "q": "What was the fruit seller wearing?",
+      "q": "What smell cut through the cool morning air?",
       "options": [
-        "A striped blue apron",
-        "A white coat",
-        "A green scarf",
-        "A leather vest"
+        "Citrus from the stacked oranges",
+        "Fresh coffee",
+        "Woodsmoke",
+        "Cut flowers"
       ],
       "answer": 0
     },
     {
-      "q": "What was in the girl's bicycle basket?",
+      "q": "Where did the girl put the white tulip?",
       "options": [
-        "A loaf of bread",
-        "A bunch of tulips",
-        "A glass jar of honey",
-        "A basket of oranges"
+        "Behind her ear",
+        "In her bicycle basket",
+        "In the jar of honey",
+        "In her coat pocket"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
-      "q": "How many times did the church bell ring?",
+      "q": "What did the fruit seller do when the church bell rang?",
       "options": [
-        "Three",
-        "Six",
-        "Eight",
-        "Twelve"
+        "Placed one last orange on the very top of the pyramid",
+        "Began packing up his stall",
+        "Rang a hand bell of his own",
+        "Waved to the baker across the street"
       ],
-      "answer": 1
+      "answer": 0
     }
   ]
 }

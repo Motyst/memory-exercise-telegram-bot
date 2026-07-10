@@ -2,34 +2,34 @@
   "title": "The Balloon Voyage",
   "questions": [
     {
-      "q": "What did the balloon envelope look like?",
+      "q": "What could you hear from the ground in the silence between burns?",
       "options": [
-        "Red and white stripes",
-        "Deep blue with a gold band",
-        "All green",
-        "Yellow with blue diamonds"
+        "A dog barking, a gate clanging, a rooster crowing",
+        "Nothing — total silence",
+        "Wind roaring past the basket",
+        "The chase crew's car horn"
       ],
-      "answer": 1
+      "answer": 0
     },
     {
-      "q": "How many beehives stood in the farmhouse garden?",
+      "q": "How did the distant balloon greet you?",
       "options": [
-        "Three",
-        "Five",
-        "Seven",
-        "Ten"
+        "Two burner flashes, answered with two of your own",
+        "It dipped lower three times",
+        "Its pilot waved a red flag",
+        "A radio crackled hello"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
-      "q": "What was under the red blanket in the basket?",
+      "q": "What tradition did the pilot reveal after landing?",
       "options": [
-        "Spare ropes",
-        "A picnic crate",
-        "A propane tank",
-        "Life jackets"
+        "You always land with a picnic",
+        "You always name the wind that carried you",
+        "You kiss the basket rail",
+        "You bury a coin where you land"
       ],
-      "answer": 1
+      "answer": 0
     }
   ]
 }

@@ -86,11 +86,15 @@ everywhere; old buttons answer "paused". All data is kept.
 
 **Adding stories — the batch/queue workflow** (from the laptop):
 
-1. Ask an AI (Claude etc.) for story texts + quiz questions. Word targets at
-   the default voice/pace (**~175 spoken words per minute**, measured):
-   `1min` ≈ 175 words · `3min` ≈ 525 · `5min` ≈ 875. Ask for concrete visual
-   detail (colors, counts, objects) — that's what the quiz asks about.
-   **Max 3 quiz questions per story** — the bot asks at most 3 even if a
+1. Ask an AI (Claude etc.) for story texts + quiz questions, and **give it
+   `scripts/STORY_GUIDE.md`** — it keeps stories densely visual (concrete
+   objects, textures, colors — the point of the exercise) and sets the
+   variety rules (POV, settings, fantastical stories welcome, quiz question
+   templates) that keep the library from getting repetitive and the quiz
+   from being gameable.
+   Word targets at the default voice/pace (**~175 spoken words per minute**,
+   measured): `1min` ≈ 175 words · `3min` ≈ 525 · `5min` ≈ 875.
+   **Max 3 quiz questions per story** — the bot asks the first 3 even if a
    sidecar ships more (`MAX_QUIZ_QUESTIONS` in
    `exercises/audio_visualization.py`).
 2. Save each story as `scripts/queue/<name>.txt`, its quiz (optional) as

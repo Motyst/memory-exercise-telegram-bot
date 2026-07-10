@@ -2,34 +2,34 @@
   "title": "The Tide Pool",
   "questions": [
     {
-      "q": "What color was the starfish?",
+      "q": "Where did the tide pool lie?",
       "options": [
-        "Purple",
-        "Bright orange",
-        "Dark red",
-        "Pale yellow"
+        "Between two dark boulders",
+        "At the foot of a cliff",
+        "In the middle of flat open sand",
+        "Inside a cave mouth"
       ],
-      "answer": 1
+      "answer": 0
     },
     {
-      "q": "How many times did the silver fish circle the pool?",
+      "q": "What did the silver fish do?",
       "options": [
-        "Once",
-        "Twice",
-        "Three times",
-        "It didn't circle"
+        "Darted out, circled the pool twice, and vanished back into shadow",
+        "Leapt over into the next pool",
+        "Chased the hermit crab across the sand",
+        "Hid inside an empty shell"
       ],
-      "answer": 1
+      "answer": 0
     },
     {
-      "q": "What bird landed on the boulder?",
+      "q": "What could you hear while the pool stayed perfectly still?",
       "options": [
-        "A crow",
-        "A pelican",
-        "A white gull",
-        "A heron"
+        "Waves breaking in slow rhythm farther out",
+        "Gulls fighting overhead",
+        "Wind whistling through the rocks",
+        "Nothing at all"
       ],
-      "answer": 2
+      "answer": 0
     }
   ]
 }

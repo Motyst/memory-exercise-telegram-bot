@@ -2,32 +2,32 @@
   "title": "The Desert Caravan",
   "questions": [
     {
-      "q": "How many camels were in the caravan?",
-      "options": [
-        "Six",
-        "Nine",
-        "Twelve",
-        "Fifteen"
-      ],
-      "answer": 1
-    },
-    {
       "q": "What cargo was the caravan carrying to market?",
       "options": [
+        "Cones of salt wrapped in matting",
         "Rolls of silk",
         "Dates",
-        "Cones of salt",
         "Clay jars of oil"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
-      "q": "What color was the young tea-maker's head-scarf?",
+      "q": "How was the tea served?",
       "options": [
-        "Green",
-        "White",
-        "Indigo blue",
-        "Red"
+        "Poured from high in a long amber arc, three rounds, each sweeter than the last",
+        "In one big shared bowl",
+        "Cold, with crushed mint",
+        "Quickly and in silence, before the wind rose"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What did you see when you woke during the midday rest?",
+      "options": [
+        "A small desert fox with huge ears, watching the camp from ten paces",
+        "A sandstorm building on the horizon",
+        "Two riders approaching from the south",
+        "A hawk circling the rock outcrop"
       ],
       "answer": 0
     }

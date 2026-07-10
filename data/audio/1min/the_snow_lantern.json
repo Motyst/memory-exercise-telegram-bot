@@ -2,34 +2,34 @@
   "title": "The Snow Lantern",
   "questions": [
     {
-      "q": "What color was the old woman's coat?",
+      "q": "How did the old woman build the lantern?",
       "options": [
-        "Red",
-        "Black",
-        "Grey",
-        "Green"
-      ],
-      "answer": 3
-    },
-    {
-      "q": "What animal watched her from the woodpile?",
-      "options": [
-        "A black cat",
-        "A brown dog",
-        "A raven",
-        "A fox"
+        "Stacked snowballs in shrinking circles until it stood hollow like a tower",
+        "Carved it from a single block of ice",
+        "Piled snow over a bucket and pulled the bucket out",
+        "Packed snow around a glass jar"
       ],
       "answer": 0
     },
     {
-      "q": "On which try did the match light the candle?",
+      "q": "What happened around the square after the lantern began to glow?",
       "options": [
-        "First",
-        "Second",
-        "Third",
-        "Fourth"
+        "Windows lit up one by one, as if answering",
+        "It started snowing harder",
+        "Children ran out to build more lanterns",
+        "The church bells rang"
       ],
-      "answer": 2
+      "answer": 0
+    },
+    {
+      "q": "Where did the black cat watch from?",
+      "options": [
+        "A woodpile",
+        "A windowsill",
+        "A doorstep",
+        "The church steps"
+      ],
+      "answer": 0
     }
   ]
 }

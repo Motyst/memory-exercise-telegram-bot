@@ -12,24 +12,24 @@
       "answer": 0
     },
     {
-      "q": "What color was the conductor's uniform?",
+      "q": "What did the snowflakes look like streaking past the window?",
       "options": [
-        "Navy blue",
-        "Black",
-        "Dark green",
-        "Burgundy"
+        "Sparks from a bonfire, glowing gold in the carriage light",
+        "Falling grey ash",
+        "White moths swarming a lamp",
+        "Static on a screen"
       ],
-      "answer": 2
+      "answer": 0
     },
     {
-      "q": "What animal watched the train from the forest's edge?",
+      "q": "What stood beside the frozen river down in the valley?",
       "options": [
-        "A wolf",
-        "A stag",
-        "A bear",
-        "An owl"
+        "A single farmhouse with one orange window glowing",
+        "A small stone chapel",
+        "A frozen watermill",
+        "A line of streetlamps"
       ],
-      "answer": 1
+      "answer": 0
     }
   ]
 }

@@ -23,7 +23,8 @@ from gamification import (
     SKILLS, EXERCISE_SKILLS, compute_test_xp, level_from_xp,
     xp_for_next_level, render_progress_bar,
 )
-from .features import is_xp_enabled
+from .features import is_xp_enabled, is_exercise_enabled
+from .audio_viz import handle_audio_viz_callback
 from exercises.word_memorization import (
     SECONDS_PER_PAIR,
     SPEED_MODE_MULTIPLIER,
@@ -125,6 +126,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🧠 *Available Exercises:*\n"
     )
     for info in ExerciseRegistry.list_exercises():
+        if not is_exercise_enabled(info["feature_flag"]):
+            continue
         welcome_text += f"• {info['name']}: {info['description']}\n"
     show_placement = tests_done == 0
     if show_placement:
@@ -251,6 +254,8 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def exercises_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = "🧠 *Available Exercises:*\n\n"
     for info in ExerciseRegistry.list_exercises():
+        if not is_exercise_enabled(info["feature_flag"]):
+            continue
         text += f"*{info['name']}*\n{info['description']}\n\n"
     text += "Select an exercise from the menu below:"
     await update.message.reply_text(
@@ -427,6 +432,15 @@ async def start_exercise(query, context, exercise_type: str) -> None:
     exercise = ExerciseRegistry.get(exercise_type)
     if not exercise:
         await query.edit_message_text("Exercise not found.")
+        return
+    # Stale button on an old message can still reach a paused exercise.
+    if not is_exercise_enabled(exercise.feature_flag):
+        await query.edit_message_text(
+            "This exercise is paused right now. Check back soon!",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")]]
+            ),
+        )
         return
     _cancel_question_timer(context, query.from_user.id)
     state = get_user_state(context)
@@ -1266,8 +1280,10 @@ def get_main_menu_keyboard(show_placement: bool = False) -> InlineKeyboardMarkup
             "📏 Find your level (2 min)", callback_data="placement:start",
         )])
     for info in ExerciseRegistry.list_exercises():
+        if not is_exercise_enabled(info["feature_flag"]):
+            continue
         buttons.append([InlineKeyboardButton(
-            f"🧠 {info['name']}", callback_data=f"exercise:{info['type']}",
+            f"{info['menu_emoji']} {info['name']}", callback_data=f"exercise:{info['type']}",
         )])
     buttons.append([
         InlineKeyboardButton("🏅 Achievements", callback_data="menu:achievements"),
@@ -1370,6 +1386,7 @@ async def handle_settings_callback(query, context, data: str) -> None:
 # exercise_type string used in its keyboards).
 CALLBACK_ROUTES = {
     "word_memo": handle_word_memo_callback,
+    "audio_viz": handle_audio_viz_callback,
     "lb": handle_leaderboard_callback,
     "menu": handle_menu_callback,
     "settings": handle_settings_callback,

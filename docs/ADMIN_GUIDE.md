@@ -17,6 +17,8 @@ Non-admins get silence — the commands don't exist for them.
 | `/admin export` | Sends you a CSV of every scored test — opens in Excel/Google Sheets |
 | `/admin grant <telegram_id> <free\|basic\|premium> [days]` | Set a user's subscription tier; omit days = no expiry |
 | `/admin xp on` / `/admin xp off` | Turn the whole XP/level system on/off (see below) |
+| `/admin audio on` / `/admin audio off` | Show/hide the Audio Visualization exercise for everyone (default: off) |
+| `/admin audioquiz on` / `/admin audioquiz off` | Offer the optional detail quiz after audio stories (default: off) |
 
 Get someone's Telegram ID: it's in `/admin users` next to their name, or they
 can message @userinfobot.
@@ -71,6 +73,46 @@ XP totals stay; only future gains change.
 **Adding a future skill bar**: add a `SkillDef` to `SKILLS` and map the new
 exercise in `EXERCISE_SKILLS` (both in `gamification/xp.py`). Each user gets
 the new bar automatically on first XP gain.
+
+## Audio Visualization exercise
+
+User listens to a narrated story and visualizes it. Passive by design; an
+optional multiple-choice detail quiz gives a proxy score.
+
+**Both flags default OFF** — turn on with `/admin audio on` when content is
+ready, `/admin audioquiz on` to experiment with the quiz. No restart needed,
+survives restarts (DB `bot_settings`). Turning audio off hides the exercise
+everywhere; old buttons answer "paused". All data is kept.
+
+**Adding a story** (from the laptop):
+
+```bash
+pip install edge-tts          # once
+python scripts/make_story.py my_story.txt --bucket 3min --title "The Old Pier" \
+    --questions my_questions.json        # questions optional
+```
+
+This renders `data/audio/3min/the_old_pier.mp3` + a `.json` sidecar (title +
+quiz). Commit + push + `git pull` on the VPS — or `scp` both files straight
+into `/root/mental_training_bot/data/audio/3min/`. **No restart needed**: the
+bot rescans the folders on every session. Buckets: `1min`, `3min`, `5min`
+(~140 spoken words per minute). Sample content: `scripts/samples/`.
+
+Any hand-made .mp3 works too — just drop it in a bucket folder. Without a
+sidecar .json the title comes from the filename and no quiz is offered.
+
+**Bookkeeping**: passive listens save as mode `audio_listen` (no score, **no
+streak** — passive work), quiz runs as `audio_quiz` (scored, streak counts).
+Both excluded from word-memo stats/leaderboard/PB/achievements; both visible
+in `/admin export`. Per-user anti-repeat: last 100 heard stories in
+preferences. Telegram file_ids cached in `data/audio/file_ids.json` (bot
+writes it; gitignored) so each file uploads only once.
+
+**Removing the exercise entirely**: delete `exercises/audio_visualization.py`,
+`bot/audio_viz.py`, `data/audio/`; remove the one registry line, the one
+`CALLBACK_ROUTES` entry + import in `bot/handlers.py`, the `AUDIO_VISUALIZATION`
+enum value, the two flag keys in `bot/features.py`, the two `/admin` subcommands,
+and `"audio_quiz"` from `_IS_SCORED_TEST` in `database/repositories.py`.
 
 ## Achievements
 

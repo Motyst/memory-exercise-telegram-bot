@@ -70,6 +70,7 @@ class User(Base):
 class ExerciseType(enum.Enum):
     """Types of mental training exercises."""
     WORD_MEMORIZATION = "word_memorization"
+    AUDIO_VISUALIZATION = "audio_visualization"
     NUMBER_SEQUENCE = "number_sequence"
     PATTERN_RECOGNITION = "pattern_recognition"
     MENTAL_MATH = "mental_math"

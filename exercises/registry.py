@@ -6,6 +6,7 @@ Central management of all available exercises.
 from typing import Dict, Type, Optional
 from .base import BaseExercise
 from .word_memorization import WordMemorizationExercise
+from .audio_visualization import AudioVisualizationExercise
 
 
 class ExerciseRegistry:
@@ -53,13 +54,16 @@ class ExerciseRegistry:
             exercises.append({
                 "type": exercise_type,
                 "name": exercise_class.name,
-                "description": exercise_class.description
+                "description": exercise_class.description,
+                "feature_flag": exercise_class.feature_flag,
+                "menu_emoji": exercise_class.menu_emoji,
             })
         return exercises
 
 
 # Register built-in exercises
 ExerciseRegistry.register(WordMemorizationExercise)
+ExerciseRegistry.register(AudioVisualizationExercise)
 
 # Future exercises can be registered like:
 # ExerciseRegistry.register(NumberSequenceExercise)

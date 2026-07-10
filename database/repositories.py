@@ -20,7 +20,7 @@ from .models import (
 _PCT = ExerciseSession.score * 100.0 / ExerciseSession.max_score
 
 # Quiz round type stored in parameters JSON:
-# "test" | "reverse" | "retry" | "placement".
+# "test" | "reverse" | "retry" | "placement" | "audio_listen" | "audio_quiz".
 _ROUND_MODE = ExerciseSession.parameters["mode"].as_string()
 
 # Any session that produced a score (includes retry-mistakes rounds).
@@ -31,11 +31,13 @@ _HAS_SCORE = and_(
 
 # Filter for real tests: scored, and neither a retry-mistakes round (practice
 # on a subset of pairs — would inflate test counts and average scores) nor a
-# placement round (one-off calibration for new users). Reverse quizzes DO
-# count — they test the full set, just column-flipped.
+# placement round (one-off calibration for new users) nor an audio detail
+# quiz (different exercise, tiny question counts — would skew word-memo
+# averages). Reverse quizzes DO count — they test the full set, just
+# column-flipped.
 _IS_SCORED_TEST = and_(
     _HAS_SCORE,
-    or_(_ROUND_MODE.is_(None), _ROUND_MODE.notin_(("retry", "placement"))),
+    or_(_ROUND_MODE.is_(None), _ROUND_MODE.notin_(("retry", "placement", "audio_quiz"))),
 )
 
 
@@ -385,8 +387,10 @@ class ExerciseSessionRepository:
 
     async def get_sessions_for_export(self) -> list[dict]:
         """
-        All scored sessions (including retry rounds, tagged in "mode") joined
-        with user info, for CSV export — filter by mode in the spreadsheet.
+        All scored or completed sessions (retry rounds, audio listens, etc. —
+        tagged in "mode") joined with user info, for CSV export — filter by
+        mode in the spreadsheet. Unscored completed sessions (e.g. passive
+        audio listens) export with empty score columns.
         """
         result = await self.session.execute(
             select(
@@ -396,7 +400,7 @@ class ExerciseSessionRepository:
                 ExerciseSession.max_score, ExerciseSession.started_at,
             )
             .join(User, ExerciseSession.user_id == User.id)
-            .where(_HAS_SCORE)
+            .where(or_(_HAS_SCORE, ExerciseSession.completed.is_(True)))
             .order_by(ExerciseSession.started_at)
         )
         rows = []

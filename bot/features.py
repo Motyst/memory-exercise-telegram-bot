@@ -13,19 +13,44 @@ from database import get_session, BotSettingsRepository
 logger = logging.getLogger(__name__)
 
 XP_ENABLED_KEY = "xp_enabled"
+AUDIO_VIZ_ENABLED_KEY = "audio_viz_enabled"
+AUDIO_VIZ_QUIZ_ENABLED_KEY = "audio_viz_quiz_enabled"
 
 # Defaults apply when the key has never been set in the DB.
-_flags: dict[str, bool] = {XP_ENABLED_KEY: True}
+# Audio visualization ships dark: admin flips it on when content is ready.
+_flags: dict[str, bool] = {
+    XP_ENABLED_KEY: True,
+    AUDIO_VIZ_ENABLED_KEY: False,
+    AUDIO_VIZ_QUIZ_ENABLED_KEY: False,
+}
 
 
 async def load_feature_flags() -> None:
     """Call once at startup."""
     async with get_session() as session:
         repo = BotSettingsRepository(session)
-        value = await repo.get(XP_ENABLED_KEY)
-    if value is not None:
-        _flags[XP_ENABLED_KEY] = value == "1"
-    logger.info(f"Feature flags loaded: xp_enabled={_flags[XP_ENABLED_KEY]}")
+        for key in _flags:
+            value = await repo.get(key)
+            if value is not None:
+                _flags[key] = value == "1"
+    logger.info(f"Feature flags loaded: {_flags}")
+
+
+def is_flag_enabled(key: str) -> bool:
+    return _flags.get(key, False)
+
+
+async def set_flag(key: str, enabled: bool) -> None:
+    async with get_session() as session:
+        await BotSettingsRepository(session).set(key, "1" if enabled else "0")
+    _flags[key] = enabled
+
+
+def is_exercise_enabled(feature_flag: str | None) -> bool:
+    """Exercises with no feature_flag are always on; flagged ones follow the flag."""
+    if feature_flag is None:
+        return True
+    return is_flag_enabled(feature_flag)
 
 
 def is_xp_enabled() -> bool:
@@ -33,8 +58,4 @@ def is_xp_enabled() -> bool:
 
 
 async def set_xp_enabled(enabled: bool) -> None:
-    async with get_session() as session:
-        await BotSettingsRepository(session).set(
-            XP_ENABLED_KEY, "1" if enabled else "0"
-        )
-    _flags[XP_ENABLED_KEY] = enabled
+    await set_flag(XP_ENABLED_KEY, enabled)

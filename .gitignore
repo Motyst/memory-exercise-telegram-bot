@@ -57,3 +57,6 @@ Thumbs.db
 # Project specific
 bot.log
 mental_training.db
+
+# Runtime cache of Telegram file_ids (machine-specific, bot writes it)
+data/audio/file_ids.json

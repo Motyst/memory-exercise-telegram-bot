@@ -1,0 +1,29 @@
+{
+  "questions": [
+    {
+      "q": "What color was the girl's raincoat?",
+      "options": ["Red", "Yellow", "Blue", "Green"],
+      "answer": 1
+    },
+    {
+      "q": "What was the kite's tail made of?",
+      "options": ["Three white ribbons", "A red rope", "Two blue streamers", "A silver chain"],
+      "answer": 0
+    },
+    {
+      "q": "What kind of tree did the kite rise past?",
+      "options": ["A pine", "A birch", "An oak", "A willow"],
+      "answer": 2
+    },
+    {
+      "q": "What was the old man on the bench doing at first?",
+      "options": ["Sleeping", "Eating lunch", "Reading a newspaper", "Feeding pigeons"],
+      "answer": 2
+    },
+    {
+      "q": "How many times did the white dog bark?",
+      "options": ["Once", "Twice", "Three times", "It didn't bark"],
+      "answer": 1
+    }
+  ]
+}

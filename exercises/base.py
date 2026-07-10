@@ -34,6 +34,10 @@ class BaseExercise(ABC):
     name: str = "Base Exercise"
     description: str = "Base exercise class"
     exercise_type: str = "base"
+    menu_emoji: str = "🧠"
+    # Optional runtime feature-flag key (bot/features.py). None = always on;
+    # set to a flag key to let admins pause the exercise for everyone.
+    feature_flag: str | None = None
     
     def __init__(self):
         self.current_difficulty: Optional[Difficulty] = None

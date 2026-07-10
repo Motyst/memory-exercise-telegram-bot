@@ -20,7 +20,10 @@ from database import (
 )
 from database.models import utcnow
 from .access import admin_only
-from .features import is_xp_enabled, set_xp_enabled
+from .features import (
+    is_xp_enabled, set_xp_enabled, is_flag_enabled, set_flag,
+    AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY,
+)
 from .menu import sync_command_menu
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,12 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _admin_grant(update, args[1:])
     elif sub == "xp":
         await _admin_xp(update, args[1:])
+    elif sub == "audio":
+        await _admin_flag(update, args[1:], AUDIO_VIZ_ENABLED_KEY,
+                          "🎧 Audio Visualization exercise", "/admin audio on|off")
+    elif sub == "audioquiz":
+        await _admin_flag(update, args[1:], AUDIO_VIZ_QUIZ_ENABLED_KEY,
+                          "🧠 Audio detail quiz", "/admin audioquiz on|off")
     else:
         await _admin_overview(update)
 
@@ -48,18 +57,23 @@ async def _admin_overview(update: Update) -> None:
         stats = await ExerciseSessionRepository(session).get_global_stats()
 
     xp_status = "ON ✅" if is_xp_enabled() else "OFF ⛔"
+    audio_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_ENABLED_KEY) else "OFF ⛔"
+    audio_quiz_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_QUIZ_ENABLED_KEY) else "OFF ⛔"
     text = (
         "🛠 Admin — Bot Overview\n\n"
         f"👥 Users: {stats['total_users']} total, +{stats['new_users_week']} this week\n"
         f"🟢 Active: {stats['active_day']} today, {stats['active_week']} this week\n"
         f"🎯 Tests: {stats['tests_total']} total, {stats['tests_week']} this week\n"
         f"📊 Avg score (all users): {stats['avg_score']:.0f}%\n"
-        f"⭐ XP system: {xp_status}\n\n"
+        f"⭐ XP system: {xp_status}\n"
+        f"🎧 Audio visualization: {audio_status} (quiz: {audio_quiz_status})\n\n"
         "Commands:\n"
         "/admin users — per-user progress\n"
         "/admin export — CSV of all sessions\n"
         "/admin grant <id> <tier> [days] — set subscription\n"
-        "/admin xp on|off — toggle the XP/level system"
+        "/admin xp on|off — toggle the XP/level system\n"
+        "/admin audio on|off — toggle the audio exercise\n"
+        "/admin audioquiz on|off — offer the detail quiz after audio"
     )
     await update.message.reply_text(text)
 
@@ -84,6 +98,19 @@ async def _admin_xp(update: Update, args: list[str]) -> None:
             "⛔ XP system OFF — no XP is calculated or shown anywhere. "
             "Existing XP is kept and comes back when you turn it on."
         )
+
+
+async def _admin_flag(update: Update, args: list[str], key: str, label: str, usage: str) -> None:
+    """Generic on/off toggle for a runtime feature flag."""
+    if not args or args[0].lower() not in ("on", "off"):
+        status = "ON ✅" if is_flag_enabled(key) else "OFF ⛔"
+        await update.message.reply_text(f"{label} is {status}\nUsage: {usage}")
+        return
+    enabled = args[0].lower() == "on"
+    await set_flag(key, enabled)
+    await update.message.reply_text(
+        f"{label} is now {'ON ✅' if enabled else 'OFF ⛔'}"
+    )
 
 
 async def _admin_users(update: Update) -> None:

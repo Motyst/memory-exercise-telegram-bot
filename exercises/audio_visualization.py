@@ -50,6 +50,10 @@ LENGTH_BUCKETS = {
 # Rolling anti-repeat window key in user preferences.
 HEARD_PREF_KEY = "audio_heard"
 
+# Detail quiz stays a quick spot-check, not a memory exam — ask at most this
+# many questions even if a sidecar ships more.
+MAX_QUIZ_QUESTIONS = 3
+
 
 @dataclass
 class Story:
@@ -95,7 +99,7 @@ def scan_library() -> dict[str, list[Story]]:
                         if q.get("q") and q.get("options")
                         and isinstance(q.get("answer"), int)
                         and 0 <= q["answer"] < len(q["options"])
-                    ]
+                    ][:MAX_QUIZ_QUESTIONS]
                 except Exception as e:
                     logger.warning(f"Bad sidecar {sidecar.name}: {e}")
             stories.append(Story(

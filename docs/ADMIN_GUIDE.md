@@ -90,6 +90,9 @@ everywhere; old buttons answer "paused". All data is kept.
    the default voice/pace (**~175 spoken words per minute**, measured):
    `1min` ≈ 175 words · `3min` ≈ 525 · `5min` ≈ 875. Ask for concrete visual
    detail (colors, counts, objects) — that's what the quiz asks about.
+   **Max 3 quiz questions per story** — the bot asks at most 3 even if a
+   sidecar ships more (`MAX_QUIZ_QUESTIONS` in
+   `exercises/audio_visualization.py`).
 2. Save each story as `scripts/queue/<name>.txt`, its quiz (optional) as
    `scripts/queue/<name>.questions.json`
    (`{"questions": [{"q": "...", "options": ["A","B","C","D"], "answer": 0}]}`).

@@ -84,19 +84,33 @@ ready, `/admin audioquiz on` to experiment with the quiz. No restart needed,
 survives restarts (DB `bot_settings`). Turning audio off hides the exercise
 everywhere; old buttons answer "paused". All data is kept.
 
-**Adding a story** (from the laptop):
+**Adding stories — the batch/queue workflow** (from the laptop):
+
+1. Ask an AI (Claude etc.) for story texts + quiz questions. Word targets at
+   the default voice/pace (**~175 spoken words per minute**, measured):
+   `1min` ≈ 175 words · `3min` ≈ 525 · `5min` ≈ 875. Ask for concrete visual
+   detail (colors, counts, objects) — that's what the quiz asks about.
+2. Save each story as `scripts/queue/<name>.txt`, its quiz (optional) as
+   `scripts/queue/<name>.questions.json`
+   (`{"questions": [{"q": "...", "options": ["A","B","C","D"], "answer": 0}]}`).
+3. Render the whole queue in one command:
 
 ```bash
 pip install edge-tts          # once
-python scripts/make_story.py my_story.txt --bucket 3min --title "The Old Pier" \
-    --questions my_questions.json        # questions optional
+python scripts/make_story.py --batch scripts/queue
 ```
 
-This renders `data/audio/3min/the_old_pier.mp3` + a `.json` sidecar (title +
-quiz). Commit + push + `git pull` on the VPS — or `scp` both files straight
-into `/root/mental_training_bot/data/audio/3min/`. **No restart needed**: the
-bot rescans the folders on every session. Buckets: `1min`, `3min`, `5min`
-(~140 spoken words per minute). Sample content: `scripts/samples/`.
+Each story lands in the right `data/audio/<bucket>/` folder automatically
+(bucket picked from word count), processed sources move to
+`scripts/queue/done/`. Single story: `python scripts/make_story.py story.txt`
+(optional `--bucket`, `--title`, `--questions`, `--voice`,
+`--rate` — speech pace, default `-10%` of edge-tts default: measured
+comfortable for visualization).
+
+Then commit + push + `git pull` on the VPS — or `scp` the new files straight
+into `/root/mental_training_bot/data/audio/<bucket>/`. **No restart needed**:
+the bot rescans the folders on every session. Sample story + questions:
+`scripts/samples/`.
 
 Any hand-made .mp3 works too — just drop it in a bucket folder. Without a
 sidecar .json the title comes from the filename and no quiz is offered.

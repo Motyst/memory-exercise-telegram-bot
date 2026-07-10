@@ -60,3 +60,6 @@ mental_training.db
 
 # Runtime cache of Telegram file_ids (machine-specific, bot writes it)
 data/audio/file_ids.json
+
+# Story render queue (transient sources; rendered mp3s live in data/audio/)
+scripts/queue/

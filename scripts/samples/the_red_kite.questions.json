@@ -1,29 +1,34 @@
 {
   "questions": [
     {
-      "q": "What color was the girl's raincoat?",
-      "options": ["Red", "Yellow", "Blue", "Green"],
-      "answer": 1
-    },
-    {
-      "q": "What was the kite's tail made of?",
-      "options": ["Three white ribbons", "A red rope", "Two blue streamers", "A silver chain"],
+      "q": "What did the kite do right after it first lifted?",
+      "options": [
+        "Dipped once toward the grass, then climbed fast",
+        "Rose straight up without a wobble",
+        "Got caught in the oak tree",
+        "Crashed and needed a second try"
+      ],
       "answer": 0
     },
     {
-      "q": "What kind of tree did the kite rise past?",
-      "options": ["A pine", "A birch", "An oak", "A willow"],
-      "answer": 2
+      "q": "What was odd about the girl's clothing?",
+      "options": [
+        "She wore a yellow raincoat under a perfectly clear sky",
+        "She was barefoot in the wet grass",
+        "She wore mittens in spring",
+        "Her boots were two different colors"
+      ],
+      "answer": 0
     },
     {
-      "q": "What was the old man on the bench doing at first?",
-      "options": ["Sleeping", "Eating lunch", "Reading a newspaper", "Feeding pigeons"],
-      "answer": 2
-    },
-    {
-      "q": "How many times did the white dog bark?",
-      "options": ["Once", "Twice", "Three times", "It didn't bark"],
-      "answer": 1
+      "q": "At the end, what did the kite hang in the sky like?",
+      "options": [
+        "A tiny door into the sky",
+        "A drop of red paint",
+        "A distant bird",
+        "A floating flag"
+      ],
+      "answer": 0
     }
   ]
 }

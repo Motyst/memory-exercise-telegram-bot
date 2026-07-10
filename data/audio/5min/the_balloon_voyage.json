@@ -1,0 +1,35 @@
+{
+  "title": "The Balloon Voyage",
+  "questions": [
+    {
+      "q": "What did the balloon envelope look like?",
+      "options": [
+        "Red and white stripes",
+        "Deep blue with a gold band",
+        "All green",
+        "Yellow with blue diamonds"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "How many beehives stood in the farmhouse garden?",
+      "options": [
+        "Three",
+        "Five",
+        "Seven",
+        "Ten"
+      ],
+      "answer": 2
+    },
+    {
+      "q": "What was under the red blanket in the basket?",
+      "options": [
+        "Spare ropes",
+        "A picnic crate",
+        "A propane tank",
+        "Life jackets"
+      ],
+      "answer": 1
+    }
+  ]
+}

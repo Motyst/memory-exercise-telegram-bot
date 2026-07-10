@@ -1,0 +1,35 @@
+{
+  "title": "The Harbor Storm",
+  "questions": [
+    {
+      "q": "What color was the trawler that led the boats home?",
+      "options": [
+        "Blue",
+        "Red",
+        "Green",
+        "Black"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "What was the woman in the yellow oilskin stacking?",
+      "options": [
+        "Fish crates",
+        "Sandbags",
+        "Lobster traps",
+        "Firewood"
+      ],
+      "answer": 2
+    },
+    {
+      "q": "How often did the lighthouse beam sweep past?",
+      "options": [
+        "Every two seconds",
+        "Every five seconds",
+        "Every ten seconds",
+        "Every thirty seconds"
+      ],
+      "answer": 1
+    }
+  ]
+}

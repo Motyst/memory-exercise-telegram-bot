@@ -1,0 +1,35 @@
+{
+  "title": "The Night Train",
+  "questions": [
+    {
+      "q": "What three shapes were the stickers on the old man's suitcase?",
+      "options": [
+        "A ship, a palm tree, and a bell",
+        "A star, a moon, and a sun",
+        "A train, a bridge, and a flag",
+        "A mountain, a river, and a bird"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What color was the conductor's uniform?",
+      "options": [
+        "Navy blue",
+        "Black",
+        "Dark green",
+        "Burgundy"
+      ],
+      "answer": 2
+    },
+    {
+      "q": "What animal watched the train from the forest's edge?",
+      "options": [
+        "A wolf",
+        "A stag",
+        "A bear",
+        "An owl"
+      ],
+      "answer": 1
+    }
+  ]
+}

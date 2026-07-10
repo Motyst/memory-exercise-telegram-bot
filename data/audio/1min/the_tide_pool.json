@@ -1,0 +1,35 @@
+{
+  "title": "The Tide Pool",
+  "questions": [
+    {
+      "q": "What color was the starfish?",
+      "options": [
+        "Purple",
+        "Bright orange",
+        "Dark red",
+        "Pale yellow"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "How many times did the silver fish circle the pool?",
+      "options": [
+        "Once",
+        "Twice",
+        "Three times",
+        "It didn't circle"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "What bird landed on the boulder?",
+      "options": [
+        "A crow",
+        "A pelican",
+        "A white gull",
+        "A heron"
+      ],
+      "answer": 2
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "title": "The Morning Market",
+  "questions": [
+    {
+      "q": "What was the fruit seller wearing?",
+      "options": [
+        "A striped blue apron",
+        "A white coat",
+        "A green scarf",
+        "A leather vest"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What was in the girl's bicycle basket?",
+      "options": [
+        "A loaf of bread",
+        "A bunch of tulips",
+        "A glass jar of honey",
+        "A basket of oranges"
+      ],
+      "answer": 2
+    },
+    {
+      "q": "How many times did the church bell ring?",
+      "options": [
+        "Three",
+        "Six",
+        "Eight",
+        "Twelve"
+      ],
+      "answer": 1
+    }
+  ]
+}

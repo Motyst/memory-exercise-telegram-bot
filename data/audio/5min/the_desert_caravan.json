@@ -1,0 +1,35 @@
+{
+  "title": "The Desert Caravan",
+  "questions": [
+    {
+      "q": "How many camels were in the caravan?",
+      "options": [
+        "Six",
+        "Nine",
+        "Twelve",
+        "Fifteen"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "What cargo was the caravan carrying to market?",
+      "options": [
+        "Rolls of silk",
+        "Dates",
+        "Cones of salt",
+        "Clay jars of oil"
+      ],
+      "answer": 2
+    },
+    {
+      "q": "What color was the young tea-maker's head-scarf?",
+      "options": [
+        "Green",
+        "White",
+        "Indigo blue",
+        "Red"
+      ],
+      "answer": 0
+    }
+  ]
+}

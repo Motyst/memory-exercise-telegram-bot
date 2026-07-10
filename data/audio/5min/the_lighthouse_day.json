@@ -1,0 +1,35 @@
+{
+  "title": "The Lighthouse Day",
+  "questions": [
+    {
+      "q": "How many steps led up the lighthouse tower?",
+      "options": [
+        "One hundred and eighteen",
+        "Ninety-nine",
+        "One hundred and forty",
+        "Two hundred and ten"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "What was in the parcel from the keeper's sister?",
+      "options": [
+        "Books and tobacco",
+        "A knitted navy jumper and a fruitcake",
+        "Wool socks and jam",
+        "A pocket watch"
+      ],
+      "answer": 1
+    },
+    {
+      "q": "What was the lighthouse's flash pattern?",
+      "options": [
+        "One long flash every five seconds",
+        "Two flashes every ten seconds",
+        "Three flashes every fifteen seconds",
+        "A steady unblinking light"
+      ],
+      "answer": 2
+    }
+  ]
+}

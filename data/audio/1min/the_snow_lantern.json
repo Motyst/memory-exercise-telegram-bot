@@ -1,0 +1,35 @@
+{
+  "title": "The Snow Lantern",
+  "questions": [
+    {
+      "q": "What color was the old woman's coat?",
+      "options": [
+        "Red",
+        "Black",
+        "Grey",
+        "Green"
+      ],
+      "answer": 3
+    },
+    {
+      "q": "What animal watched her from the woodpile?",
+      "options": [
+        "A black cat",
+        "A brown dog",
+        "A raven",
+        "A fox"
+      ],
+      "answer": 0
+    },
+    {
+      "q": "On which try did the match light the candle?",
+      "options": [
+        "First",
+        "Second",
+        "Third",
+        "Fourth"
+      ],
+      "answer": 2
+    }
+  ]
+}

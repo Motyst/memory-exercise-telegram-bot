@@ -17,6 +17,9 @@ settings = get_settings()
 # Seconds per pair for the study phase timer in test mode
 SECONDS_PER_PAIR = 5
 
+# Seconds per word for list-format study (single words, but order must stick)
+SECONDS_PER_WORD = 3
+
 # Speed mode multiplier (halves the study time)
 SPEED_MODE_MULTIPLIER = 0.5
 
@@ -77,9 +80,13 @@ DIFFICULTY_NAMES = {
     Difficulty.ADVANCED: "Advanced (All Types)",
 }
 
+# Format = what the user memorizes: linked pairs or one ordered list.
+FORMAT_NAMES = {"pairs": "🔗 Word Pairs", "list": "📜 Word List"}
+FORMAT_UNITS = {"pairs": "pairs", "list": "words"}
+
 
 def get_progression_suggestion(
-    difficulty: Difficulty, count: int, score_pct: float
+    difficulty: Difficulty, count: int, score_pct: float, fmt: str = "pairs"
 ) -> str | None:
     """
     Return a suggestion string if the user should level up, or None.
@@ -90,10 +97,11 @@ def get_progression_suggestion(
 
     next_diff = NEXT_DIFFICULTY.get(difficulty)
     next_cnt = NEXT_COUNT.get(count)
+    unit = FORMAT_UNITS.get(fmt, "pairs")
 
     suggestions = []
     if next_cnt and next_cnt <= 100:
-        suggestions.append(f"try *{next_cnt} pairs*")
+        suggestions.append(f"try *{next_cnt} {unit}*")
     if next_diff:
         suggestions.append(f"step up to *{DIFFICULTY_NAMES[next_diff]}*")
 
@@ -154,10 +162,22 @@ class WordMemorizationExercise(BaseExercise):
     def get_intro_message(self) -> str:
         return (
             "🧠 *Word Memorization Exercise*\n\n"
-            "Train your visual memory by memorizing word pairs.\n\n"
+            "Train your visual memory.\n\n"
+            "*What to memorize:*\n"
+            "• 🔗 *Word Pairs* — memorize pairs, recall the partner word\n"
+            "• 📜 *Word List* — memorize one ordered list, recall which "
+            "word came before or after\n\n"
+            "Choose a format:"
+        )
+
+    def get_mode_message(self, fmt: str) -> str:
+        fmt_label = FORMAT_NAMES.get(fmt, FORMAT_NAMES["pairs"])
+        unit = FORMAT_UNITS.get(fmt, "pairs")
+        return (
+            f"*Format:* {fmt_label}\n\n"
             "*Modes:*\n"
-            "• 📝 *Training* — Study word pairs at your own pace\n"
-            "• 🎯 *Test* — Study pairs, then get quizzed on each one\n\n"
+            f"• 📝 *Training* — Study {unit} at your own pace\n"
+            f"• 🎯 *Test* — Study {unit}, then get quizzed\n\n"
             "Select your mode:"
         )
 
@@ -172,10 +192,12 @@ class WordMemorizationExercise(BaseExercise):
             "Select your difficulty:"
         )
 
-    def get_speed_message(self, difficulty: Difficulty) -> str:
+    def get_speed_message(self, difficulty: Difficulty, fmt: str = "pairs") -> str:
         diff_label = DIFFICULTY_NAMES[difficulty]
-        normal_note = f"{SECONDS_PER_PAIR}s per pair"
-        speed_note = f"{SECONDS_PER_PAIR * SPEED_MODE_MULTIPLIER:.0f}s per pair"
+        per = SECONDS_PER_WORD if fmt == "list" else SECONDS_PER_PAIR
+        item = "word" if fmt == "list" else "pair"
+        normal_note = f"{per}s per {item}"
+        speed_note = f"{per * SPEED_MODE_MULTIPLIER:.1f}s per {item}".replace(".0s", "s")
         return (
             f"*Difficulty:* {diff_label}\n\n"
             "Choose your study pace:\n"
@@ -188,10 +210,20 @@ class WordMemorizationExercise(BaseExercise):
     # ========================================================================
 
     def get_mode_keyboard(self) -> InlineKeyboardMarkup:
+        """Entry keyboard: format selection (pairs vs list)."""
+        rows = [
+            [InlineKeyboardButton("🔗 Word Pairs", callback_data=f"{self.exercise_type}:format:pairs")],
+            [InlineKeyboardButton("📜 Word List", callback_data=f"{self.exercise_type}:format:list")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+        ]
+        return InlineKeyboardMarkup(rows)
+
+    def get_mode_select_keyboard(self) -> InlineKeyboardMarkup:
         rows = [
             [InlineKeyboardButton("📝 Training Mode", callback_data=f"{self.exercise_type}:mode:training")],
             [InlineKeyboardButton("🎯 Test Mode", callback_data=f"{self.exercise_type}:mode:test")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:start"),
+             InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ]
         return InlineKeyboardMarkup(rows)
 
@@ -200,7 +232,7 @@ class WordMemorizationExercise(BaseExercise):
             [InlineKeyboardButton("🟢 Beginner (Everyday Objects)", callback_data=f"{self.exercise_type}:diff:beginner")],
             [InlineKeyboardButton("🟡 Intermediate (Nouns + Verbs)", callback_data=f"{self.exercise_type}:diff:intermediate")],
             [InlineKeyboardButton("🔴 Advanced (All Types)", callback_data=f"{self.exercise_type}:diff:advanced")],
-            [InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:start"),
+            [InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:back_to_mode"),
              InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ])
 
@@ -213,12 +245,13 @@ class WordMemorizationExercise(BaseExercise):
              InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ])
 
-    def _build_count_keyboard(self, back_action: str) -> InlineKeyboardMarkup:
+    def _build_count_keyboard(self, back_action: str, fmt: str = "pairs") -> InlineKeyboardMarkup:
+        unit = FORMAT_UNITS.get(fmt, "pairs")
         buttons = []
         row = []
         for i, count in enumerate(self.COUNT_OPTIONS):
             row.append(InlineKeyboardButton(
-                f"{count} pairs", callback_data=f"{self.exercise_type}:count:{count}",
+                f"{count} {unit}", callback_data=f"{self.exercise_type}:count:{count}",
             ))
             if len(row) == 4 or i == len(self.COUNT_OPTIONS) - 1:
                 buttons.append(row)
@@ -229,20 +262,23 @@ class WordMemorizationExercise(BaseExercise):
         ])
         return InlineKeyboardMarkup(buttons)
 
-    def get_parameter_keyboard(self, difficulty: Difficulty) -> InlineKeyboardMarkup:
-        return self._build_count_keyboard("back_to_speed")
+    def get_parameter_keyboard(self, difficulty: Difficulty, fmt: str = "pairs") -> InlineKeyboardMarkup:
+        return self._build_count_keyboard("back_to_speed", fmt)
 
-    def get_parameter_keyboard_training(self, difficulty: Difficulty) -> InlineKeyboardMarkup:
+    def get_parameter_keyboard_training(self, difficulty: Difficulty, fmt: str = "pairs") -> InlineKeyboardMarkup:
         """Count keyboard for training mode (back goes to difficulty, not speed)."""
-        return self._build_count_keyboard("back_to_diff")
+        return self._build_count_keyboard("back_to_diff", fmt)
 
     def get_skip_keyboard(self, seconds_left: int = QUESTION_TIME_LIMIT) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([[
             InlineKeyboardButton(f"⏭ Skip ({seconds_left}s left)", callback_data=f"{self.exercise_type}:skip")
         ]])
 
-    def get_results_keyboard(self, has_mistakes: bool = False) -> InlineKeyboardMarkup:
-        """Results keyboard with Retry Mistakes and Reverse Quiz options."""
+    def get_results_keyboard(
+        self, has_mistakes: bool = False,
+        next_count: int | None = None, fmt: str = "pairs",
+    ) -> InlineKeyboardMarkup:
+        """Results keyboard with Retry Mistakes, Reverse Quiz and Level Up options."""
         rows = []
 
         first_row = [
@@ -253,6 +289,14 @@ class WordMemorizationExercise(BaseExercise):
                 InlineKeyboardButton("🔁 Retry Mistakes", callback_data=f"{self.exercise_type}:retry_mistakes")
             )
         rows.append(first_row)
+
+        # Level up — same difficulty & settings, next size up (hidden at max)
+        if next_count:
+            unit = FORMAT_UNITS.get(fmt, "pairs")
+            rows.append([InlineKeyboardButton(
+                f"⬆️ Level up: {next_count} {unit}",
+                callback_data=f"{self.exercise_type}:next_count:{next_count}",
+            )])
 
         # Reverse quiz — always available after a test
         rows.append([
@@ -265,6 +309,23 @@ class WordMemorizationExercise(BaseExercise):
         ])
         return InlineKeyboardMarkup(rows)
 
+    def get_completion_keyboard(
+        self, next_count: int | None = None, fmt: str = "pairs",
+    ) -> InlineKeyboardMarkup:
+        """Training-mode completion keyboard, with optional Level Up button."""
+        rows = [[
+            InlineKeyboardButton("🔄 Another List", callback_data=f"{self.exercise_type}:again"),
+            InlineKeyboardButton("⚙️ Change Settings", callback_data=f"{self.exercise_type}:settings"),
+        ]]
+        if next_count:
+            unit = FORMAT_UNITS.get(fmt, "pairs")
+            rows.append([InlineKeyboardButton(
+                f"⬆️ Level up: {next_count} {unit}",
+                callback_data=f"{self.exercise_type}:next_count:{next_count}",
+            )])
+        rows.append([InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")])
+        return InlineKeyboardMarkup(rows)
+
     # ========================================================================
     # Generation
     # ========================================================================
@@ -274,18 +335,27 @@ class WordMemorizationExercise(BaseExercise):
 
     async def generate(self, difficulty: Difficulty, parameters: dict) -> ExerciseResult:
         count = min(parameters.get("count", 10), settings.max_word_pairs)
+        fmt = parameters.get("format", "pairs")
         all_words = self._get_words_for_difficulty(difficulty)
         recent: list[str] = parameters.get("recent_words", [])
+
+        needed = count if fmt == "list" else count * 2
 
         # Prefer words not seen recently; fall back to full pool if needed
         recent_set = set(w.lower() for w in recent)
         fresh = [w for w in all_words if w.lower() not in recent_set]
-        pool = fresh if len(fresh) >= count * 2 else all_words
+        pool = fresh if len(fresh) >= needed else all_words
 
-        if len(pool) < count * 2:
-            selected_words = random.choices(pool, k=count * 2)
+        if len(pool) < needed:
+            selected_words = random.choices(pool, k=needed)
         else:
-            selected_words = random.sample(pool, count * 2)
+            selected_words = random.sample(pool, needed)
+
+        if fmt == "list":
+            return ExerciseResult(
+                text_content=self._format_list_text(selected_words, difficulty),
+                additional_data={"words": selected_words, "difficulty": difficulty.value, "count": count},
+            )
 
         pairs = [(selected_words[i], selected_words[i + count]) for i in range(count)]
         return ExerciseResult(
@@ -308,6 +378,17 @@ class WordMemorizationExercise(BaseExercise):
                 lines.append("———————————")
         return "\n".join(lines)
 
+    def _format_list_text(self, words: list[str], difficulty: Difficulty) -> str:
+        lines = [
+            f"📜 *Word List - {DIFFICULTY_NAMES[difficulty]}*",
+            f"Total words: {len(words)} — *order matters!*\n",
+        ]
+        for i, word in enumerate(words, 1):
+            lines.append(f"{i}. *{word}*")
+            if i % 10 == 0 and i < len(words):
+                lines.append("———————————")
+        return "\n".join(lines)
+
     def format_pairs_text_for_test(
         self, pairs, difficulty, countdown_seconds, speed_mode=False,
     ) -> str:
@@ -320,10 +401,31 @@ class WordMemorizationExercise(BaseExercise):
         )
         return base
 
-    def format_test_prompt(self, shown_word: str, current: int, total: int) -> str:
+    def format_list_text_for_test(
+        self, words, difficulty, countdown_seconds, speed_mode=False,
+    ) -> str:
+        base = self._format_list_text(words, difficulty)
+        speed_label = " ⚡ *SPEED MODE*" if speed_mode else ""
+        base += (
+            f"\n\n⏱ *Test Mode*{speed_label} — You have *{countdown_seconds} seconds* to memorize.\n"
+            "The list will disappear, then you'll be asked which word came "
+            "*before* or *after* a given word.\n"
+            f"Each question has a *{QUESTION_TIME_LIMIT}s* time limit."
+        )
+        return base
+
+    def format_test_prompt(
+        self, shown_word: str, current: int, total: int, direction: str | None = None,
+    ) -> str:
+        if direction == "next":
+            question = f"Which word came *right after*:  *{shown_word}*  ?"
+        elif direction == "prev":
+            question = f"Which word came *right before*:  *{shown_word}*  ?"
+        else:
+            question = f"What was paired with:  *{shown_word}*  ?"
         return (
             f"❓ *Question {current}/{total}*\n\n"
-            f"What was paired with:  *{shown_word}*  ?\n\n"
+            f"{question}\n\n"
             f"_Type your answer, or tap Skip. ({QUESTION_TIME_LIMIT}s)_"
         )
 
@@ -333,14 +435,18 @@ class WordMemorizationExercise(BaseExercise):
         progression_text: str | None = None,
         streak_text: str | None = None,
         compact: bool = False,
+        fmt: str = "pairs",
     ) -> str:
-        """compact=True (user setting): only score header, pairs and typo legend."""
+        """compact=True (user setting): only score header, pairs and typo legend.
+        fmt="list": *pairs* holds the ordered word list; each result covers one
+        adjacent link (pair_index = position of the earlier word)."""
         correct_count = sum(1 for r in results if r["correct"])
         total = len(results)
 
         diff_label = DIFFICULTY_NAMES.get(difficulty, "Unknown") if difficulty else "Unknown"
+        header = "Word List Results" if fmt == "list" else "Test Results"
         lines = [
-            f"📊 *Test Results — {diff_label}*",
+            f"📊 *{header} — {diff_label}*",
             f"Score: *{correct_count}/{total}*\n",
         ]
 
@@ -355,21 +461,37 @@ class WordMemorizationExercise(BaseExercise):
                 lines.append(personal_best_text)
                 lines.append("")
 
-            lines.append("*Original pairs with your answers:*\n")
+            label = "list" if fmt == "list" else "pairs"
+            lines.append(f"*Original {label} with your answers:*\n")
 
         result_by_pair = {r["pair_index"]: r for r in results}
-        for i, (word1, word2) in enumerate(pairs):
-            r = result_by_pair.get(i)
-            if r and r["correct"]:
-                mark = "✅~" if r.get("fuzzy") else "✅"
-            else:
-                mark = "❌"
-            line = f"{i + 1}. *{word1}* — {word2}  {mark}"
-            if r and not r["correct"]:
-                line += f"  (you said: _{r['answer']}_)"
-            lines.append(line)
-            if (i + 1) % 10 == 0 and (i + 1) < len(pairs):
-                lines.append("———————————")
+        if fmt == "list":
+            # One line per adjacent link: word_i → word_i+1
+            for i in range(len(pairs) - 1):
+                r = result_by_pair.get(i)
+                if r and r["correct"]:
+                    mark = "✅~" if r.get("fuzzy") else "✅"
+                else:
+                    mark = "❌"
+                line = f"{i + 1}. *{pairs[i]}* → {pairs[i + 1]}  {mark}"
+                if r and not r["correct"]:
+                    line += f"  (you said: _{r['answer']}_)"
+                lines.append(line)
+                if (i + 1) % 10 == 0 and (i + 1) < len(pairs) - 1:
+                    lines.append("———————————")
+        else:
+            for i, (word1, word2) in enumerate(pairs):
+                r = result_by_pair.get(i)
+                if r and r["correct"]:
+                    mark = "✅~" if r.get("fuzzy") else "✅"
+                else:
+                    mark = "❌"
+                line = f"{i + 1}. *{word1}* — {word2}  {mark}"
+                if r and not r["correct"]:
+                    line += f"  (you said: _{r['answer']}_)"
+                lines.append(line)
+                if (i + 1) % 10 == 0 and (i + 1) < len(pairs):
+                    lines.append("———————————")
 
         if not compact:
             # Summary

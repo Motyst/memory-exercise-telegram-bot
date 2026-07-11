@@ -238,17 +238,24 @@ class ExerciseSessionRepository:
         )).scalar_one()
 
     async def get_personal_best(
-        self, user_id: int, difficulty: str, count: int,
+        self, user_id: int, difficulty: str, count: int, fmt: str = "pairs",
     ) -> float | None:
         """
-        Return the best score percentage for a given difficulty + pair count,
-        or None if no previous test exists for that combo.
+        Return the best score percentage for a given difficulty + count +
+        format ("pairs" or "list"), or None if no previous test exists for
+        that combo. Rows without a format (pre-list-feature) count as pairs.
         """
+        fmt_col = ExerciseSession.parameters["format"].as_string()
+        fmt_filter = (
+            fmt_col == "list" if fmt == "list"
+            else or_(fmt_col.is_(None), fmt_col == "pairs")
+        )
         return (await self.session.execute(
             select(func.max(_PCT)).where(
                 ExerciseSession.user_id == user_id,
                 ExerciseSession.difficulty == difficulty,
                 ExerciseSession.parameters["count"].as_integer() == count,
+                fmt_filter,
                 _IS_SCORED_TEST,
             )
         )).scalar_one_or_none()
@@ -275,6 +282,7 @@ class ExerciseSessionRepository:
                 "difficulty": sess.difficulty,
                 "count": params.get("count", "?"),
                 "mode": params.get("mode", "test"),
+                "format": params.get("format", "pairs"),
                 "score": sess.score or 0,
                 "max_score": sess.max_score,
                 "pct": (sess.score or 0) / sess.max_score * 100,
@@ -412,6 +420,7 @@ class ExerciseSessionRepository:
                 "exercise": r.exercise_type.value,
                 "difficulty": r.difficulty,
                 "mode": params.get("mode", "test"),
+                "format": params.get("format", ""),
                 "pairs": params.get("count", ""),
                 "score": r.score,
                 "max_score": r.max_score,

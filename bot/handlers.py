@@ -27,9 +27,12 @@ from .features import is_xp_enabled, is_exercise_enabled
 from .audio_viz import handle_audio_viz_callback
 from exercises.word_memorization import (
     SECONDS_PER_PAIR,
+    SECONDS_PER_WORD,
     SPEED_MODE_MULTIPLIER,
     QUESTION_TIME_LIMIT,
     DIFFICULTY_NAMES,
+    FORMAT_UNITS,
+    NEXT_COUNT,
     is_fuzzy_match,
     get_progression_suggestion,
 )
@@ -154,10 +157,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/leaderboard - Compare with others (opt-in)\n"
         "/exercises - Available exercises\n"
         "/settings - Preferences (compact results)\n\n"
+        "*Formats:*\n"
+        "🔗 *Word Pairs* — memorize pairs, recall the partner\n"
+        "📜 *Word List* — memorize an ordered list, recall neighbors\n\n"
         "*Modes:*\n"
         "📝 *Training* — Study at your own pace\n"
         "🎯 *Test* — Study, then quiz (normal or ⚡ speed)\n"
-        "🔀 *Reverse Quiz* — Re-quiz with columns flipped\n\n"
+        "🔀 *Reverse Quiz* — Re-quiz flipped\n\n"
         f"⏱ {QUESTION_TIME_LIMIT}s per question · typos tolerated"
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
@@ -243,8 +249,9 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         date_str = h["date"].strftime("%b %d, %H:%M") if h["date"] else "?"
         diff_emoji = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}.get(h["difficulty"], "⚪")
         reverse_tag = " 🔀" if h.get("mode") == "reverse" else ""
+        unit = "words 📜" if h.get("format") == "list" else "pairs"
         lines.append(
-            f"{i}. {date_str}  {diff_emoji} {h['count']} pairs  "
+            f"{i}. {date_str}  {diff_emoji} {h['count']} {unit}  "
             f"*{h['score']}/{h['max_score']}* ({h['pct']:.0f}%){reverse_tag}"
         )
 
@@ -472,6 +479,14 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
             reply_markup=kb,
         )
 
+    elif action == "format":
+        # First step: what to memorize — "pairs" or "list"
+        set_user_state(context, "format", value)
+        await query.edit_message_text(
+            exercise.get_mode_message(value), parse_mode=ParseMode.MARKDOWN,
+            reply_markup=exercise.get_mode_select_keyboard(),
+        )
+
     elif action == "mode":
         set_user_state(context, "mode", value)
         await query.edit_message_text(
@@ -484,11 +499,12 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         set_user_state(context, "difficulty", difficulty)
         state = get_user_state(context)
         mode = state.get("mode", "training")
+        fmt = state.get("format", "pairs")
 
         if mode == "test":
             # Show speed selection for test mode (#4)
             await query.edit_message_text(
-                exercise.get_speed_message(difficulty),
+                exercise.get_speed_message(difficulty, fmt),
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=exercise.get_speed_keyboard(),
             )
@@ -496,10 +512,11 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
             # Training mode goes straight to count
             mode_label = "📝 Training"
             diff_label = DIFFICULTY_NAMES[difficulty]
+            unit = FORMAT_UNITS.get(fmt, "pairs")
             await query.edit_message_text(
-                f"*Mode:* {mode_label}\n*Difficulty:* {diff_label}\n\nHow many word pairs?",
+                f"*Mode:* {mode_label}\n*Difficulty:* {diff_label}\n\nHow many {unit}?",
                 parse_mode=ParseMode.MARKDOWN,
-                reply_markup=exercise.get_parameter_keyboard_training(difficulty),
+                reply_markup=exercise.get_parameter_keyboard_training(difficulty, fmt),
             )
 
     elif action == "speed":
@@ -507,12 +524,22 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         set_user_state(context, "speed_mode", value == "fast")
         state = get_user_state(context)
         difficulty = state.get("difficulty", Difficulty.BEGINNER)
+        fmt = state.get("format", "pairs")
         speed_label = "⚡ Speed" if value == "fast" else "🕐 Normal"
         diff_label = DIFFICULTY_NAMES[difficulty]
+        unit = FORMAT_UNITS.get(fmt, "pairs")
         await query.edit_message_text(
-            f"*Mode:* 🎯 Test\n*Difficulty:* {diff_label}\n*Pace:* {speed_label}\n\nHow many word pairs?",
+            f"*Mode:* 🎯 Test\n*Difficulty:* {diff_label}\n*Pace:* {speed_label}\n\nHow many {unit}?",
             parse_mode=ParseMode.MARKDOWN,
-            reply_markup=exercise.get_parameter_keyboard(difficulty),
+            reply_markup=exercise.get_parameter_keyboard(difficulty, fmt),
+        )
+
+    elif action == "back_to_mode":
+        state = get_user_state(context)
+        fmt = state.get("format", "pairs")
+        await query.edit_message_text(
+            exercise.get_mode_message(fmt), parse_mode=ParseMode.MARKDOWN,
+            reply_markup=exercise.get_mode_select_keyboard(),
         )
 
     elif action == "back_to_diff":
@@ -526,17 +553,22 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
     elif action == "back_to_speed":
         state = get_user_state(context)
         difficulty = state.get("difficulty", Difficulty.BEGINNER)
+        fmt = state.get("format", "pairs")
         await query.edit_message_text(
-            exercise.get_speed_message(difficulty), parse_mode=ParseMode.MARKDOWN,
+            exercise.get_speed_message(difficulty, fmt), parse_mode=ParseMode.MARKDOWN,
             reply_markup=exercise.get_speed_keyboard(),
         )
 
-    elif action == "count":
+    elif action in ("count", "next_count"):
+        # "count" = picked from the keyboard; "next_count" = Level Up button
+        # on a results/completion screen — same flow, new size, same settings.
         count = int(value)
         set_user_state(context, "count", count)
         state = get_user_state(context)
         difficulty = state.get("difficulty", Difficulty.BEGINNER)
         mode = state.get("mode", "training")
+        if action == "next_count":
+            await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
         if mode == "test":
             await generate_word_memo_test(query, context, difficulty, count)
         else:
@@ -591,10 +623,14 @@ async def _get_recent_words(telegram_id: int) -> list[str]:
 
 
 async def _save_recent_words(
-    telegram_id: int, pairs: list[tuple[str, str]], window: int = 200
+    telegram_id: int, items: list, window: int = 200
 ) -> None:
-    """Append used words to the rolling recent-words window in user preferences."""
-    used = [w for pair in pairs for w in pair]
+    """Append used words to the rolling recent-words window in user preferences.
+    *items* is a list of pair tuples (pairs format) or plain words (list format)."""
+    used = [
+        w for item in items
+        for w in (item if isinstance(item, (list, tuple)) else (item,))
+    ]
     async with get_session() as session:
         user_repo = UserRepository(session)
         db_user = await user_repo.get_by_telegram_id(telegram_id)
@@ -610,6 +646,8 @@ async def _save_recent_words(
 async def generate_word_memo(query, context, difficulty, count) -> None:
     user = query.from_user
     exercise = ExerciseRegistry.get("word_memo")
+    state = get_user_state(context)
+    fmt = state.get("format", "pairs")
     recent = await _get_recent_words(user.id)
     async with get_session() as session:
         user_repo = UserRepository(session)
@@ -618,15 +656,20 @@ async def generate_word_memo(query, context, difficulty, count) -> None:
         if db_user:
             await session_repo.create(
                 user_id=db_user.id, exercise_type=ExerciseType.WORD_MEMORIZATION,
-                difficulty=difficulty.value, parameters={"count": count, "mode": "training"},
+                difficulty=difficulty.value,
+                parameters={"count": count, "mode": "training", "format": fmt},
             )
     result = await exercise.generate(
-        difficulty=difficulty, parameters={"count": count, "recent_words": recent}
+        difficulty=difficulty,
+        parameters={"count": count, "recent_words": recent, "format": fmt},
     )
-    await _save_recent_words(user.id, result.additional_data["pairs"])
+    items = result.additional_data["words" if fmt == "list" else "pairs"]
+    await _save_recent_words(user.id, items)
     await query.edit_message_text(
         result.text_content, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=exercise.get_completion_keyboard(),
+        reply_markup=exercise.get_completion_keyboard(
+            next_count=NEXT_COUNT.get(count), fmt=fmt,
+        ),
     )
 
 
@@ -649,24 +692,60 @@ def _build_quiz_items(pairs):
     return quiz_items
 
 
+def _build_list_quiz_items(words):
+    """Build shuffled quiz items over adjacent links in an ordered word list.
+
+    Each link i = (words[i], words[i+1]) yields one question, asked in a random
+    direction: "next" shows words[i] and expects words[i+1]; "prev" shows
+    words[i+1] and expects words[i]. pair_index stores the link index so
+    retry/results machinery works unchanged.
+    """
+    links = list(range(len(words) - 1))
+    random.shuffle(links)
+    quiz_items = []
+    for i in links:
+        if random.choice([True, False]):
+            item = {"pair_index": i, "direction": "next",
+                    "shown_word": words[i], "expected": words[i + 1]}
+        else:
+            item = {"pair_index": i, "direction": "prev",
+                    "shown_word": words[i + 1], "expected": words[i]}
+        quiz_items.append(item)
+    return quiz_items
+
+
 async def generate_word_memo_test(query, context, difficulty, count, round_mode: str = "test") -> None:
     exercise = ExerciseRegistry.get("word_memo")
+    state = get_user_state(context)
+    fmt = state.get("format", "pairs")
     recent = await _get_recent_words(query.from_user.id)
     result = await exercise.generate(
-        difficulty=difficulty, parameters={"count": count, "recent_words": recent}
+        difficulty=difficulty,
+        parameters={"count": count, "recent_words": recent, "format": fmt},
     )
-    pairs = result.additional_data["pairs"]
 
-    state = get_user_state(context)
     speed = state.get("speed_mode", False)
     multiplier = SPEED_MODE_MULTIPLIER if speed else 1.0
-    countdown_seconds = int(count * SECONDS_PER_PAIR * multiplier)
 
-    quiz_items = _build_quiz_items(pairs)
+    if fmt == "list":
+        items = result.additional_data["words"]
+        countdown_seconds = int(count * SECONDS_PER_WORD * multiplier)
+        quiz_items = _build_list_quiz_items(items)
+        study_text = exercise.format_list_text_for_test(
+            items, difficulty, countdown_seconds, speed_mode=speed,
+        )
+    else:
+        items = result.additional_data["pairs"]
+        countdown_seconds = int(count * SECONDS_PER_PAIR * multiplier)
+        quiz_items = _build_quiz_items(items)
+        study_text = exercise.format_pairs_text_for_test(
+            items, difficulty, countdown_seconds, speed_mode=speed,
+        )
 
     set_user_state(context, "test_active", False)
     set_user_state(context, "test_exercise_type", exercise.exercise_type)
-    set_user_state(context, "test_pairs", pairs)
+    set_user_state(context, "test_pairs", items)
+    set_user_state(context, "test_format", fmt)
     set_user_state(context, "test_quiz_items", quiz_items)
     set_user_state(context, "test_current_index", 0)
     set_user_state(context, "test_results", [])
@@ -674,10 +753,6 @@ async def generate_word_memo_test(query, context, difficulty, count, round_mode:
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
     set_user_state(context, "test_round_mode", round_mode)
-
-    study_text = exercise.format_pairs_text_for_test(
-        pairs, difficulty, countdown_seconds, speed_mode=speed,
-    )
     await query.edit_message_text(study_text, parse_mode=ParseMode.MARKDOWN)
 
     set_user_state(context, "test_study_message_id", query.message.message_id)
@@ -757,7 +832,10 @@ async def _send_next_question(context, chat_id, state, user_id=None) -> None:
         return
 
     item = quiz_items[current_index]
-    prompt = exercise.format_test_prompt(item["shown_word"], current_index + 1, len(quiz_items))
+    prompt = exercise.format_test_prompt(
+        item["shown_word"], current_index + 1, len(quiz_items),
+        direction=item.get("direction"),
+    )
     msg = await context.bot.send_message(
         chat_id=chat_id, text=prompt, parse_mode=ParseMode.MARKDOWN,
         reply_markup=exercise.get_skip_keyboard(QUESTION_TIME_LIMIT),
@@ -846,6 +924,7 @@ async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_mes
         "pair_index": item["pair_index"], "shown_word": item["shown_word"],
         "expected": item["expected"], "answer": answer_text.strip(),
         "correct": is_correct, "fuzzy": fuzzy,
+        "direction": item.get("direction"),
     })
     state["test_results"] = results
     state["test_current_index"] = current_index + 1
@@ -859,6 +938,7 @@ async def _show_test_results(context, chat_id, state) -> None:
     results = state.get("test_results", [])
     difficulty = state.get("test_difficulty", Difficulty.BEGINNER)
     baseline = state.get("baseline_results", [])
+    fmt = state.get("test_format", "pairs")
 
     # Merge baseline + retry results
     merged_by_pair = {r["pair_index"]: r for r in baseline}
@@ -867,7 +947,8 @@ async def _show_test_results(context, chat_id, state) -> None:
     merged_results = list(merged_by_pair.values())
 
     correct_count = sum(1 for r in merged_results if r["correct"])
-    total = len(pairs)
+    # List format: N words yield N-1 adjacent-link questions
+    total = max(len(pairs) - 1, 1) if fmt == "list" else len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
     # "test" (fresh) | "reverse" | "retry" | "placement" — stored in session
@@ -893,7 +974,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                 compact = (db_user.preferences or {}).get("compact_results", False)
                 difficulty_value = difficulty.value
                 prev_best = await session_repo.get_personal_best(
-                    db_user.id, difficulty_value, len(pairs),
+                    db_user.id, difficulty_value, len(pairs), fmt=fmt,
                 )
                 # Save current session — score/max_score go into real columns
                 # so stats, leaderboard and admin views aggregate in SQL.
@@ -901,7 +982,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                     user_id=db_user.id,
                     exercise_type=ExerciseType.WORD_MEMORIZATION,
                     difficulty=difficulty_value,
-                    parameters={"count": len(pairs), "mode": round_mode},
+                    parameters={"count": len(pairs), "mode": round_mode, "format": fmt},
                     score=correct_count, max_score=total, completed=True,
                 )
                 # Personal best — not on retries (merged score mixes baseline
@@ -1003,7 +1084,7 @@ async def _show_test_results(context, chat_id, state) -> None:
     count = state.get("count", len(pairs))
     progression_text = None
     if not is_placement:
-        progression_text = get_progression_suggestion(difficulty, count, score_pct)
+        progression_text = get_progression_suggestion(difficulty, count, score_pct, fmt)
 
     results_text = exercise.format_test_results(
         pairs, merged_results, difficulty,
@@ -1011,6 +1092,7 @@ async def _show_test_results(context, chat_id, state) -> None:
         progression_text=progression_text,
         streak_text=streak_text,
         compact=compact,
+        fmt=fmt,
     )
 
     if new_achievements:
@@ -1049,7 +1131,11 @@ async def _show_test_results(context, chat_id, state) -> None:
         ])
     else:
         has_mistakes = any(not r["correct"] for r in merged_results)
-        keyboard = exercise.get_results_keyboard(has_mistakes=has_mistakes)
+        keyboard = exercise.get_results_keyboard(
+            has_mistakes=has_mistakes,
+            next_count=NEXT_COUNT.get(count),
+            fmt=fmt,
+        )
 
     await context.bot.send_message(
         chat_id=chat_id, text=results_text, parse_mode=ParseMode.MARKDOWN,
@@ -1067,20 +1153,30 @@ async def _start_retry_mistakes(query, context) -> None:
     last_pairs = state.get("last_test_pairs", [])
     difficulty = state.get("test_difficulty", state.get("difficulty", Difficulty.BEGINNER))
 
-    wrong_indices = [r["pair_index"] for r in last_results if not r["correct"]]
-    if not wrong_indices:
+    wrong_results = [r for r in last_results if not r["correct"]]
+    if not wrong_results:
         await query.edit_message_text("No mistakes to retry! 🎉")
         return
 
+    fmt = state.get("test_format", "pairs")
     quiz_items = []
-    random.shuffle(wrong_indices)
-    for idx in wrong_indices:
-        w1, w2 = last_pairs[idx]
-        if random.choice([True, False]):
-            shown, expected = w1, w2
-        else:
-            shown, expected = w2, w1
-        quiz_items.append({"pair_index": idx, "shown_word": shown, "expected": expected})
+    random.shuffle(wrong_results)
+    if fmt == "list":
+        # Re-ask the same link questions (same direction) the user missed
+        for r in wrong_results:
+            quiz_items.append({
+                "pair_index": r["pair_index"], "direction": r.get("direction"),
+                "shown_word": r["shown_word"], "expected": r["expected"],
+            })
+    else:
+        for r in wrong_results:
+            idx = r["pair_index"]
+            w1, w2 = last_pairs[idx]
+            if random.choice([True, False]):
+                shown, expected = w1, w2
+            else:
+                shown, expected = w2, w1
+            quiz_items.append({"pair_index": idx, "shown_word": shown, "expected": expected})
 
     correct_results = [r for r in last_results if r["correct"]]
 
@@ -1122,27 +1218,46 @@ async def _start_reverse_quiz(query, context) -> None:
         await query.edit_message_text("No pairs available. Start a new test first.")
         return
 
-    # Build reverse quiz: for each pair, flip which word is shown vs asked.
+    # Build reverse quiz: for each question, flip which word is shown vs asked.
     # We look at the original results to find what was shown, then show the
-    # opposite word this time.
+    # opposite word this time. List format: flipping also flips the question
+    # direction (asked "what came after X" → now "what came before Y").
+    fmt = state.get("test_format", "pairs")
     result_by_pair = {r["pair_index"]: r for r in last_results}
-    quiz_order = list(range(len(last_pairs)))
+    n_questions = len(last_pairs) - 1 if fmt == "list" else len(last_pairs)
+    quiz_order = list(range(n_questions))
     random.shuffle(quiz_order)
 
     quiz_items = []
+    _FLIP = {"next": "prev", "prev": "next"}
     for idx in quiz_order:
-        w1, w2 = last_pairs[idx]
         prev = result_by_pair.get(idx)
-        if prev:
-            # Show whichever word was the *answer* last time
-            quiz_items.append({
-                "pair_index": idx,
-                "shown_word": prev["expected"],
-                "expected": prev["shown_word"],
-            })
+        if fmt == "list":
+            if prev:
+                quiz_items.append({
+                    "pair_index": idx,
+                    "direction": _FLIP.get(prev.get("direction"), "next"),
+                    "shown_word": prev["expected"],
+                    "expected": prev["shown_word"],
+                })
+            else:
+                direction = random.choice(["next", "prev"])
+                if direction == "next":
+                    quiz_items.append({"pair_index": idx, "direction": "next",
+                                       "shown_word": last_pairs[idx], "expected": last_pairs[idx + 1]})
+                else:
+                    quiz_items.append({"pair_index": idx, "direction": "prev",
+                                       "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx]})
         else:
-            # No previous result — just flip randomly
-            if random.choice([True, False]):
+            w1, w2 = last_pairs[idx]
+            if prev:
+                # Show whichever word was the *answer* last time
+                quiz_items.append({
+                    "pair_index": idx,
+                    "shown_word": prev["expected"],
+                    "expected": prev["shown_word"],
+                })
+            elif random.choice([True, False]):
                 quiz_items.append({"pair_index": idx, "shown_word": w2, "expected": w1})
             else:
                 quiz_items.append({"pair_index": idx, "shown_word": w1, "expected": w2})
@@ -1157,9 +1272,13 @@ async def _start_reverse_quiz(query, context) -> None:
     set_user_state(context, "baseline_results", [])
     set_user_state(context, "test_round_mode", "reverse")
 
+    flip_note = (
+        "This time the directions are flipped!" if fmt == "list"
+        else "This time the columns are flipped!"
+    )
     await query.edit_message_text(
-        f"🔀 *Reverse Quiz — {len(quiz_items)} pairs*\n\n"
-        "This time the columns are flipped!\n"
+        f"🔀 *Reverse Quiz — {len(quiz_items)} questions*\n\n"
+        f"{flip_note}\n"
         f"Each question has *{QUESTION_TIME_LIMIT}s* to answer.",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -1223,6 +1342,7 @@ async def handle_placement_callback(query, context, data: str) -> None:
     elif action == "begin":
         set_user_state(context, "current_exercise", "word_memo")
         set_user_state(context, "mode", "test")
+        set_user_state(context, "format", "pairs")
         set_user_state(context, "speed_mode", False)
         set_user_state(context, "difficulty", PLACEMENT_DIFFICULTY)
         set_user_state(context, "count", PLACEMENT_COUNT)
@@ -1240,6 +1360,7 @@ async def handle_placement_callback(query, context, data: str) -> None:
         await _cleanup_bot_messages(context.bot, query.message.chat_id, state)
         set_user_state(context, "current_exercise", "word_memo")
         set_user_state(context, "mode", "test")
+        set_user_state(context, "format", "pairs")
         set_user_state(context, "speed_mode", False)
         set_user_state(context, "difficulty", difficulty)
         set_user_state(context, "count", count)

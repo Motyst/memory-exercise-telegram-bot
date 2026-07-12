@@ -42,7 +42,10 @@ mental_training_bot/
 ├── config/settings.py             # Settings, env vars, lru_cache singleton
 ├── bot/
 │   ├── __init__.py               # Bot setup, handler registration
-│   └── handlers.py               # All command + callback handlers
+│   ├── handlers.py               # Callback + text-message routing
+│   ├── commands.py               # Slash commands + menu callbacks
+│   ├── quiz_engine.py            # Shared quiz engine (timers, scoring, results)
+│   └── word_memo.py              # Word memorization flow
 ├── exercises/
 │   ├── base.py                   # BaseExercise ABC
 │   ├── registry.py               # Exercise registry

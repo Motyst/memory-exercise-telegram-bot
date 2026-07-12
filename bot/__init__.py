@@ -13,7 +13,7 @@ from telegram.ext import (
 
 from config import get_settings
 from database import init_db, close_db
-from .handlers import (
+from .commands import (
     start_command,
     help_command,
     stats_command,
@@ -23,9 +23,8 @@ from .handlers import (
     leaderboard_command,
     level_command,
     settings_command,
-    callback_handler,
-    text_message_handler,
 )
+from .handlers import callback_handler, text_message_handler
 from .admin import admin_command
 from .features import load_feature_flags
 from .menu import sync_command_menu

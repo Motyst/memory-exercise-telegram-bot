@@ -84,6 +84,19 @@ DIFFICULTY_NAMES = {
 FORMAT_NAMES = {"pairs": "🔗 Word Pairs", "list": "📜 Word List"}
 FORMAT_UNITS = {"pairs": "pairs", "list": "words"}
 
+DIFF_EMOJI = {"beginner": "🟢", "intermediate": "🟡", "advanced": "🔴"}
+
+
+def get_placement_recommendation(score_pct: float) -> tuple[Difficulty, int]:
+    """Map placement-test score to a recommended (difficulty, pair count)."""
+    if score_pct < 50:
+        return Difficulty.BEGINNER, 5
+    if score_pct < 75:
+        return Difficulty.BEGINNER, 10
+    if score_pct < 90:
+        return Difficulty.INTERMEDIATE, 10
+    return Difficulty.ADVANCED, 10
+
 
 def get_progression_suggestion(
     difficulty: Difficulty, count: int, score_pct: float, fmt: str = "pairs"
@@ -329,9 +342,6 @@ class WordMemorizationExercise(BaseExercise):
     # ========================================================================
     # Generation
     # ========================================================================
-
-    # Rolling window: how many recently used words to avoid re-showing
-    RECENT_WORDS_WINDOW = 200
 
     async def generate(self, difficulty: Difficulty, parameters: dict) -> ExerciseResult:
         count = min(parameters.get("count", 10), settings.max_word_pairs)

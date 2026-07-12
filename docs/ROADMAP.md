@@ -75,3 +75,39 @@ Same length buckets, but "advanced" stories pack ~2× the concrete details and
 quizzes pull harder questions. Gives audio a progression ladder like
 word-memo's difficulty tiers. Mostly content work (story writing guidelines
 per tier in ADMIN_GUIDE), light code (difficulty field in sidecar + keyboard).
+
+## 7. Redemption codes + founding-member offer — Skool access gate
+
+One-time codes gate the bot to paid Skool members, no Skool API needed:
+
+- New `redemption_codes` table: `code`, `tier`, `duration_days`
+  (NULL = lifetime), `redeemed_by`, `redeemed_at`.
+- `/admin codes <n> <tier> <days|lifetime>` generates a batch;
+  `/redeem CODE` in the bot sets `subscription_tier` +
+  `subscription_expires_at` (NULL = never expires). One-time codes
+  (not multi-use) so a leaked code burns one spot, not the campaign.
+- **Founding-member campaign**: first 100 signups get full access forever —
+  generate the first batch as 100 lifetime codes, hand out per member in the
+  paid Skool section. After those, switch to 30-day batches rotated monthly.
+- Later: replace monthly rotation with Zapier "member joined/left" webhook →
+  endpoint on the VPS → auto grant/revoke.
+
+## 8. Milestone level trials + community rewards
+
+XP levels stay automatic except every 5th level, which is gated by a
+**trial**: a fixed challenge test (count/difficulty/speed defined per
+milestone), pass at ≥90% to cross. Rare enough to feel like a boss fight.
+
+- Pass → badge/title shown on leaderboard ("🏅 Adept", "🏆 Master").
+- Skool rewards are manual (no Skool API for points), which keeps them
+  personal: shoutout post on milestone, classroom module unlocks, higher
+  milestones = free month / 1-on-1 call.
+- Pairs well with #5 (daily community story) — trials as community events.
+
+## Parked ideas
+
+- **Study-phase metronome audio**: Telegram bots can't trigger vibration or
+  sounds, so the workaround is a pre-generated tick mp3 (tick every
+  5s/2.5s, duration = study time) sent with the study message; `file_id`
+  cached like audio stories, opt-in via `/settings`. Parked — revisit if
+  users ask for pacing help.

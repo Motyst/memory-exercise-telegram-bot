@@ -75,7 +75,7 @@ NEXT_DIFFICULTY = {
 NEXT_COUNT = {5: 10, 10: 15, 15: 20, 20: 30, 30: 50, 50: 75, 75: 100}
 
 DIFFICULTY_NAMES = {
-    Difficulty.BEGINNER: "Beginner (Everyday Objects)",
+    Difficulty.BEGINNER: "Beginner (Nouns)",
     Difficulty.INTERMEDIATE: "Intermediate (Nouns + Verbs)",
     Difficulty.ADVANCED: "Advanced (All Types)",
 }
@@ -199,7 +199,7 @@ class WordMemorizationExercise(BaseExercise):
         return (
             f"*Mode:* {mode_label}\n\n"
             "*Difficulty levels:*\n"
-            "• 🟢 Beginner — Everyday objects (easy to picture)\n"
+            "• 🟢 Beginner — Nouns\n"
             "• 🟡 Intermediate — All nouns + Verbs\n"
             "• 🔴 Advanced — Nouns + Verbs + Adjectives\n\n"
             "Select your difficulty:"
@@ -242,7 +242,7 @@ class WordMemorizationExercise(BaseExercise):
 
     def get_difficulty_keyboard(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Beginner (Everyday Objects)", callback_data=f"{self.exercise_type}:diff:beginner")],
+            [InlineKeyboardButton("🟢 Beginner (Nouns)", callback_data=f"{self.exercise_type}:diff:beginner")],
             [InlineKeyboardButton("🟡 Intermediate (Nouns + Verbs)", callback_data=f"{self.exercise_type}:diff:intermediate")],
             [InlineKeyboardButton("🔴 Advanced (All Types)", callback_data=f"{self.exercise_type}:diff:advanced")],
             [InlineKeyboardButton("⬅️ Back", callback_data=f"{self.exercise_type}:back_to_mode"),

@@ -693,25 +693,18 @@ def _build_quiz_items(pairs):
 
 
 def _build_list_quiz_items(words):
-    """Build shuffled quiz items over adjacent links in an ordered word list.
+    """Build sequential chain quiz items over an ordered word list.
 
-    Each link i = (words[i], words[i+1]) yields one question, asked in a random
-    direction: "next" shows words[i] and expects words[i+1]; "prev" shows
-    words[i+1] and expects words[i]. pair_index stores the link index so
-    retry/results machinery works unchanged.
+    Question i shows words[i] and expects words[i+1], walked in list order so
+    every word is tested exactly once as an answer. Each prompt doubles as the
+    reveal of the previous answer (skip or wrong — the next question shows it).
+    pair_index stores the link index so retry/results machinery works unchanged.
     """
-    links = list(range(len(words) - 1))
-    random.shuffle(links)
-    quiz_items = []
-    for i in links:
-        if random.choice([True, False]):
-            item = {"pair_index": i, "direction": "next",
-                    "shown_word": words[i], "expected": words[i + 1]}
-        else:
-            item = {"pair_index": i, "direction": "prev",
-                    "shown_word": words[i + 1], "expected": words[i]}
-        quiz_items.append(item)
-    return quiz_items
+    return [
+        {"pair_index": i, "direction": "next",
+         "shown_word": words[i], "expected": words[i + 1]}
+        for i in range(len(words) - 1)
+    ]
 
 
 async def generate_word_memo_test(query, context, difficulty, count, round_mode: str = "test") -> None:
@@ -874,9 +867,13 @@ async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_mes
     # result and leave the current question (and its timer) untouched.
     # Runs BEFORE the active/index guards so it also covers the final
     # question, whose results render immediately after timeout.
+    # Disabled for list format: the sequential chain means the next prompt
+    # displays the timed-out question's answer, so a grace credit would let
+    # the user copy it off the screen.
     last_timeout_at = state.get("last_timeout_at")
     if (
         not is_special
+        and state.get("test_format") != "list"
         and last_timeout_at is not None
         and time.monotonic() - last_timeout_at <= ANSWER_TIMEOUT_GRACE
         and results
@@ -1160,15 +1157,19 @@ async def _start_retry_mistakes(query, context) -> None:
 
     fmt = state.get("test_format", "pairs")
     quiz_items = []
-    random.shuffle(wrong_results)
     if fmt == "list":
-        # Re-ask the same link questions (same direction) the user missed
+        # Re-ask the missed link questions (same direction), in chain order.
+        # Prev-direction rounds run descending: ascending would leak — the
+        # prompt for link i (words[i+1]) is the expected answer for link i+1.
+        descending = any(r.get("direction") == "prev" for r in wrong_results)
+        wrong_results.sort(key=lambda r: r["pair_index"], reverse=descending)
         for r in wrong_results:
             quiz_items.append({
                 "pair_index": r["pair_index"], "direction": r.get("direction"),
                 "shown_word": r["shown_word"], "expected": r["expected"],
             })
     else:
+        random.shuffle(wrong_results)
         for r in wrong_results:
             idx = r["pair_index"]
             w1, w2 = last_pairs[idx]
@@ -1218,37 +1219,25 @@ async def _start_reverse_quiz(query, context) -> None:
         await query.edit_message_text("No pairs available. Start a new test first.")
         return
 
-    # Build reverse quiz: for each question, flip which word is shown vs asked.
-    # We look at the original results to find what was shown, then show the
-    # opposite word this time. List format: flipping also flips the question
-    # direction (asked "what came after X" → now "what came before Y").
+    # Build reverse quiz. Pairs: for each question, flip which word is shown
+    # vs asked (we look at the original results to find what was shown, then
+    # show the opposite word this time). List: walk the chain backwards — show
+    # a word, recall the one right before it, from the end of the list down.
     fmt = state.get("test_format", "pairs")
     result_by_pair = {r["pair_index"]: r for r in last_results}
-    n_questions = len(last_pairs) - 1 if fmt == "list" else len(last_pairs)
-    quiz_order = list(range(n_questions))
-    random.shuffle(quiz_order)
 
     quiz_items = []
-    _FLIP = {"next": "prev", "prev": "next"}
-    for idx in quiz_order:
-        prev = result_by_pair.get(idx)
-        if fmt == "list":
-            if prev:
-                quiz_items.append({
-                    "pair_index": idx,
-                    "direction": _FLIP.get(prev.get("direction"), "next"),
-                    "shown_word": prev["expected"],
-                    "expected": prev["shown_word"],
-                })
-            else:
-                direction = random.choice(["next", "prev"])
-                if direction == "next":
-                    quiz_items.append({"pair_index": idx, "direction": "next",
-                                       "shown_word": last_pairs[idx], "expected": last_pairs[idx + 1]})
-                else:
-                    quiz_items.append({"pair_index": idx, "direction": "prev",
-                                       "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx]})
-        else:
+    if fmt == "list":
+        for idx in range(len(last_pairs) - 2, -1, -1):
+            quiz_items.append({
+                "pair_index": idx, "direction": "prev",
+                "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx],
+            })
+    else:
+        quiz_order = list(range(len(last_pairs)))
+        random.shuffle(quiz_order)
+        for idx in quiz_order:
+            prev = result_by_pair.get(idx)
             w1, w2 = last_pairs[idx]
             if prev:
                 # Show whichever word was the *answer* last time
@@ -1273,7 +1262,7 @@ async def _start_reverse_quiz(query, context) -> None:
     set_user_state(context, "test_round_mode", "reverse")
 
     flip_note = (
-        "This time the directions are flipped!" if fmt == "list"
+        "This time you walk the list *backwards* — recall the word that came before!" if fmt == "list"
         else "This time the columns are flipped!"
     )
     await query.edit_message_text(

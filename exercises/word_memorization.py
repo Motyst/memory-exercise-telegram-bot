@@ -165,8 +165,8 @@ class WordMemorizationExercise(BaseExercise):
             "Train your visual memory.\n\n"
             "*What to memorize:*\n"
             "• 🔗 *Word Pairs* — memorize pairs, recall the partner word\n"
-            "• 📜 *Word List* — memorize one ordered list, recall which "
-            "word came before or after\n\n"
+            "• 📜 *Word List* — memorize one ordered list, then recall it "
+            "word by word from the start\n\n"
             "Choose a format:"
         )
 
@@ -408,8 +408,8 @@ class WordMemorizationExercise(BaseExercise):
         speed_label = " ⚡ *SPEED MODE*" if speed_mode else ""
         base += (
             f"\n\n⏱ *Test Mode*{speed_label} — You have *{countdown_seconds} seconds* to memorize.\n"
-            "The list will disappear, then you'll be asked which word came "
-            "*before* or *after* a given word.\n"
+            "The list will disappear, then you'll walk through it in order: "
+            "each word is shown and you recall the word that came *right after* it.\n"
             f"Each question has a *{QUESTION_TIME_LIMIT}s* time limit."
         )
         return base

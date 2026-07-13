@@ -298,7 +298,10 @@ async def _show_test_results(context, chat_id, state) -> None:
                     user_id=db_user.id,
                     exercise_type=exercise_enum,
                     difficulty=difficulty_value,
-                    parameters={"count": len(pairs), "mode": round_mode, "format": fmt},
+                    parameters={
+                        "count": len(pairs), "mode": round_mode, "format": fmt,
+                        "speed": state.get("speed_mode", False),
+                    },
                     score=correct_count, max_score=total, completed=True,
                 )
                 # Personal best — not on retries (merged score mixes baseline
@@ -371,11 +374,24 @@ async def _show_test_results(context, chat_id, state) -> None:
                             level=skill_row.level,
                             hard_streak=skill_row.hard_streak,
                         )
+                        # ⚡ Fresh-mind bonus: test launched from a daily
+                        # reminder ping within the window. Remove this block
+                        # together with bot/reminders.py (lazy import — a
+                        # top-level one would be a circular import).
+                        fresh_xp = 0
+                        if (
+                            xp_res.xp > 0 and round_mode == "test"
+                            and state.pop("fresh_mind_pending", None)
+                        ):
+                            from .reminders import claim_fresh_mind_bonus
+                            fresh_xp = await claim_fresh_mind_bonus(
+                                user_repo, db_user, xp_res.xp
+                            )
                         new_level, xp_into, xp_need = level_from_xp(
-                            skill_row.xp + xp_res.xp
+                            skill_row.xp + xp_res.xp + fresh_xp
                         )
                         await skill_repo.add_xp(
-                            db_user.id, skill_code, xp_res.xp,
+                            db_user.id, skill_code, xp_res.xp + fresh_xp,
                             new_level, xp_res.new_hard_streak,
                         )
                         if xp_res.xp > 0:
@@ -384,6 +400,11 @@ async def _show_test_results(context, chat_id, state) -> None:
                                 f"⭐ *+{xp_res.xp} XP* {skill.emoji} {skill.name} — "
                                 f"Level {new_level} ({xp_into}/{xp_need})"
                             )
+                            if fresh_xp:
+                                xp_lines.append(
+                                    f"⚡ Fresh-mind bonus — +{fresh_xp} XP for "
+                                    "answering the reminder fast!"
+                                )
                             if xp_res.streak_multiplier > 1.0 and not compact:
                                 xp_lines.append(
                                     f"🔥 Hard-exercise streak ×{xp_res.streak_multiplier:.1f} XP bonus!"

@@ -22,9 +22,10 @@ from database.models import utcnow
 from .access import admin_only
 from .features import (
     is_xp_enabled, set_xp_enabled, is_flag_enabled, set_flag,
-    AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY,
+    AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY, REMINDERS_ENABLED_KEY,
 )
 from .menu import sync_command_menu
+from .redeem import admin_codes
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     elif sub == "audioquiz":
         await _admin_flag(update, args[1:], AUDIO_VIZ_QUIZ_ENABLED_KEY,
                           "🧠 Audio detail quiz", "/admin audioquiz on|off")
+    elif sub == "codes":
+        await admin_codes(update, args[1:])
+    elif sub == "reminders":
+        await _admin_flag(update, args[1:], REMINDERS_ENABLED_KEY,
+                          "🔔 Daily reminders", "/admin reminders on|off")
     else:
         await _admin_overview(update)
 
@@ -59,6 +65,7 @@ async def _admin_overview(update: Update) -> None:
     xp_status = "ON ✅" if is_xp_enabled() else "OFF ⛔"
     audio_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_ENABLED_KEY) else "OFF ⛔"
     audio_quiz_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_QUIZ_ENABLED_KEY) else "OFF ⛔"
+    reminders_status = "ON ✅" if is_flag_enabled(REMINDERS_ENABLED_KEY) else "OFF ⛔"
     text = (
         "🛠 Admin — Bot Overview\n\n"
         f"👥 Users: {stats['total_users']} total, +{stats['new_users_week']} this week\n"
@@ -66,14 +73,18 @@ async def _admin_overview(update: Update) -> None:
         f"🎯 Tests: {stats['tests_total']} total, {stats['tests_week']} this week\n"
         f"📊 Avg score (all users): {stats['avg_score']:.0f}%\n"
         f"⭐ XP system: {xp_status}\n"
-        f"🎧 Audio visualization: {audio_status} (quiz: {audio_quiz_status})\n\n"
+        f"🎧 Audio visualization: {audio_status} (quiz: {audio_quiz_status})\n"
+        f"🔔 Daily reminders: {reminders_status}\n\n"
         "Commands:\n"
         "/admin users — per-user progress\n"
         "/admin export — CSV of all sessions\n"
         "/admin grant <id> <tier> [days] — set subscription\n"
+        "/admin codes <n> <tier> <days|lifetime> — generate access codes\n"
+        "/admin codes list — unredeemed codes\n"
         "/admin xp on|off — toggle the XP/level system\n"
         "/admin audio on|off — toggle the audio exercise\n"
-        "/admin audioquiz on|off — offer the detail quiz after audio"
+        "/admin audioquiz on|off — offer the detail quiz after audio\n"
+        "/admin reminders on|off — toggle daily reminders"
     )
     await update.message.reply_text(text)
 

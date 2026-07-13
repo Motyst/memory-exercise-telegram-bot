@@ -29,6 +29,7 @@ def _user_commands() -> list[BotCommand]:
         BotCommand("achievements", "Your achievements"),
         BotCommand("leaderboard", "Leaderboard (opt-in)"),
         BotCommand("settings", "Preferences"),
+        BotCommand("redeem", "Activate an access code"),
         BotCommand("help", "How the bot works"),
     ]
     return commands

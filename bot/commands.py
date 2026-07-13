@@ -21,6 +21,7 @@ from gamification import (
 from exercises.word_memorization import QUESTION_TIME_LIMIT, DIFF_EMOJI
 from .features import is_xp_enabled, is_exercise_enabled
 from .quiz_engine import cancel_question_timer
+from .reminders import reminder_settings_text, reminder_settings_rows
 from .state import get_user_state, clear_user_state, cleanup_bot_messages
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/achievements - Your achievements\n"
         "/leaderboard - Compare with others (opt-in)\n"
         "/exercises - Available exercises\n"
-        "/settings - Preferences (compact results)\n\n"
+        "/settings - Preferences (compact results, daily reminder)\n"
+        "/redeem - Activate an access code\n\n"
         "*Formats:*\n"
         "🔗 *Word Pairs* — memorize pairs, recall the partner\n"
         "📜 *Word List* — memorize an ordered list, recall neighbors\n\n"
@@ -408,14 +410,16 @@ def _settings_text_and_keyboard(preferences: dict) -> tuple[str, InlineKeyboardM
         "Off: full results with streak, personal best and tips._\n\n"
         f"Currently: *{'On ✅' if compact else 'Off'}*"
     )
-    kb = InlineKeyboardMarkup([
+    text += reminder_settings_text(preferences)
+    rows = [
         [InlineKeyboardButton(
             f"📋 Compact results: {'✅ On' if compact else '⬜ Off'}",
             callback_data="settings:toggle_compact",
         )],
+        *reminder_settings_rows(preferences),
         [InlineKeyboardButton("📏 Retake level test", callback_data="placement:start")],
-    ])
-    return text, kb
+    ]
+    return text, InlineKeyboardMarkup(rows)
 
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

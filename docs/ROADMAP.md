@@ -5,8 +5,9 @@ Working agreement: build one at a time, flag-gate anything user-facing, keep
 each feature removable like audio-viz. Details get worked out at build time —
 what's written here is direction, not final spec.
 
-Suggested build order: #2 → #4 → #9 → #1 (#9 is #1's notification
-plumbing), with #3 as the next big exercise.
+Suggested build order: #2 → #4 → #1 (#9's notification plumbing is now
+live for #1 to ride on), with #3 as the next big exercise.
+Shipped: #7 (redemption codes), #9 (daily reminder + fresh-mind bonus).
 
 ---
 
@@ -77,7 +78,7 @@ quizzes pull harder questions. Gives audio a progression ladder like
 word-memo's difficulty tiers. Mostly content work (story writing guidelines
 per tier in ADMIN_GUIDE), light code (difficulty field in sidecar + keyboard).
 
-## 7. Redemption codes + founding-member offer — Skool access gate
+## 7. Redemption codes + founding-member offer — Skool access gate ✅ SHIPPED
 
 One-time codes gate the bot to paid Skool members, no Skool API needed:
 
@@ -105,7 +106,7 @@ milestone), pass at ≥90% to cross. Rare enough to feel like a boss fight.
   milestones = free month / 1-on-1 call.
 - Pairs well with #5 (daily community story) — trials as community events.
 
-## 9. Daily training reminder + fresh-mind XP bonus — #1's plumbing
+## 9. Daily training reminder + fresh-mind XP bonus — #1's plumbing ✅ SHIPPED
 
 Opt-in daily notification with a one-tap preset test start; answering fast
 pays bonus XP. Builds the daily `job_queue` sweep + opt-in + quiet-hours

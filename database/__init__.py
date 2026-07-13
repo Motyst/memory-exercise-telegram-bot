@@ -1,11 +1,11 @@
 from .models import (
     Base, User, ExerciseSession, ExerciseType, SubscriptionTier, UserAchievement,
-    UserSkill, BotSetting,
+    UserSkill, BotSetting, RedemptionCode,
 )
 from .connection import init_db, close_db, get_session
 from .repositories import (
     UserRepository, ExerciseSessionRepository, AchievementRepository,
-    UserSkillRepository, BotSettingsRepository,
+    UserSkillRepository, BotSettingsRepository, RedemptionCodeRepository,
 )
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "UserAchievement",
     "UserSkill",
     "BotSetting",
+    "RedemptionCode",
     "init_db",
     "close_db",
     "get_session",
@@ -25,4 +26,5 @@ __all__ = [
     "AchievementRepository",
     "UserSkillRepository",
     "BotSettingsRepository",
+    "RedemptionCodeRepository",
 ]

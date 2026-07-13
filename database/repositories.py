@@ -6,14 +6,15 @@ Stats/leaderboard queries aggregate in SQL (not Python loops) so they stay
 fast as the session table grows.
 """
 
+import secrets
 from datetime import datetime, timedelta, date
 from typing import Optional
-from sqlalchemy import select, func, and_, or_, case
+from sqlalchemy import select, update, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
     User, ExerciseSession, ExerciseType, SubscriptionTier, UserAchievement,
-    UserSkill, BotSetting, utcnow,
+    UserSkill, BotSetting, RedemptionCode, utcnow,
 )
 
 # Score percentage expression reused across queries.
@@ -135,6 +136,23 @@ class UserRepository:
             user.leaderboard_opt_in = opt_in
             await self.session.flush()
         return user
+
+    async def get_users_due_reminder(self, utc_hour: int) -> list[User]:
+        """Users whose daily reminder fires at this UTC hour and who haven't
+        trained today yet (no nagging after a done session). Part of the
+        reminder feature (bot/reminders.py) — remove together with it."""
+        rem = User.preferences["reminder"]
+        result = await self.session.execute(
+            select(User).where(
+                rem["enabled"].as_boolean().is_(True),
+                rem["utc_hour"].as_integer() == utc_hour,
+                or_(
+                    User.last_trained_date.is_(None),
+                    User.last_trained_date < date.today(),
+                ),
+            )
+        )
+        return list(result.scalars().all())
 
     async def set_subscription(
         self, telegram_id: int, tier: SubscriptionTier,
@@ -283,6 +301,7 @@ class ExerciseSessionRepository:
                 "count": params.get("count", "?"),
                 "mode": params.get("mode", "test"),
                 "format": params.get("format", "pairs"),
+                "speed": params.get("speed", False),
                 "score": sess.score or 0,
                 "max_score": sess.max_score,
                 "pct": (sess.score or 0) / sess.max_score * 100,
@@ -491,6 +510,74 @@ class BotSettingsRepository:
         else:
             row.value = value
         await self.session.flush()
+
+
+class RedemptionCodeRepository:
+    """One-time access codes (bot/redeem.py). Part of the redemption-code
+    feature — remove together with it."""
+
+    # No 0/O/1/I — codes get read off a screen and typed on a phone.
+    _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    def _generate_code(self) -> str:
+        chunk = lambda: "".join(secrets.choice(self._ALPHABET) for _ in range(4))
+        return f"MTB-{chunk()}-{chunk()}"
+
+    async def create_batch(
+        self, n: int, tier: SubscriptionTier, duration_days: Optional[int],
+    ) -> list[str]:
+        """Generate n unique unredeemed codes. duration_days None = lifetime."""
+        codes = []
+        while len(codes) < n:
+            code = self._generate_code()
+            exists = (await self.session.execute(
+                select(func.count()).select_from(RedemptionCode)
+                .where(RedemptionCode.code == code)
+            )).scalar_one()
+            if exists or code in codes:
+                continue
+            self.session.add(RedemptionCode(
+                code=code, tier=tier, duration_days=duration_days,
+            ))
+            codes.append(code)
+        await self.session.flush()
+        return codes
+
+    async def redeem(self, code: str, telegram_id: int) -> Optional[RedemptionCode]:
+        """Atomically claim a code for a user. Returns the code row on
+        success, None if the code doesn't exist or is already redeemed.
+        The UPDATE ... WHERE redeemed_by IS NULL guard makes two concurrent
+        redeems of the same code impossible."""
+        result = await self.session.execute(
+            update(RedemptionCode)
+            .where(
+                RedemptionCode.code == code,
+                RedemptionCode.redeemed_by.is_(None),
+            )
+            .values(redeemed_by=telegram_id, redeemed_at=utcnow())
+        )
+        if result.rowcount == 0:
+            return None
+        await self.session.flush()
+        return (await self.session.execute(
+            select(RedemptionCode).where(RedemptionCode.code == code)
+        )).scalar_one()
+
+    async def get_stats(self) -> dict:
+        """Counts + unredeemed codes for /admin codes list."""
+        redeemed = (await self.session.execute(
+            select(func.count()).select_from(RedemptionCode)
+            .where(RedemptionCode.redeemed_by.isnot(None))
+        )).scalar_one()
+        unredeemed_rows = (await self.session.execute(
+            select(RedemptionCode)
+            .where(RedemptionCode.redeemed_by.is_(None))
+            .order_by(RedemptionCode.created_at)
+        )).scalars().all()
+        return {"redeemed": redeemed, "unredeemed": list(unredeemed_rows)}
 
 
 class AchievementRepository:

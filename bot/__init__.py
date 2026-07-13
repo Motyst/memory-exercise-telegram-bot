@@ -28,6 +28,8 @@ from .handlers import callback_handler, text_message_handler
 from .admin import admin_command
 from .features import load_feature_flags
 from .menu import sync_command_menu
+from .redeem import redeem_command
+from .reminders import schedule_reminder_job
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("leaderboard", leaderboard_command))
     application.add_handler(CommandHandler("level", level_command))
     application.add_handler(CommandHandler("settings", settings_command))
+    application.add_handler(CommandHandler("redeem", redeem_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(
@@ -57,6 +60,7 @@ async def on_startup(application: Application) -> None:
     logger.info("Database initialized")
     await load_feature_flags()
     await sync_command_menu(application.bot)
+    schedule_reminder_job(application)
     bot_info = await application.bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
 

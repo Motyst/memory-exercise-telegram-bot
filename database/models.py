@@ -142,6 +142,29 @@ class BotSetting(Base):
     value = Column(String(255), nullable=False)
 
 
+class RedemptionCode(Base):
+    """One-time access codes gating the bot to paid community members.
+
+    duration_days NULL = lifetime access (subscription never expires).
+    redeemed_by stores the Telegram ID (not users.id) so codes can be
+    inspected without a join and survive user-row changes.
+    Feature lives in bot/redeem.py — removing it: drop that module, this
+    model, its repository, and the /redeem + /admin codes registrations.
+    """
+    __tablename__ = "redemption_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(32), unique=True, nullable=False, index=True)
+    tier = Column(SQLEnum(SubscriptionTier), nullable=False)
+    duration_days = Column(Integer, nullable=True)  # NULL = lifetime
+    created_at = Column(DateTime, default=utcnow)
+    redeemed_by = Column(BigInteger, nullable=True)  # Telegram ID
+    redeemed_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<RedemptionCode(code={self.code}, tier={self.tier}, redeemed_by={self.redeemed_by})>"
+
+
 class UserAchievement(Base):
     """Unlocked achievements per user. Definitions live in gamification/achievements.py."""
     __tablename__ = "user_achievements"

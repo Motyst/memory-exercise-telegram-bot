@@ -21,7 +21,8 @@ from .models import (
 _PCT = ExerciseSession.score * 100.0 / ExerciseSession.max_score
 
 # Quiz round type stored in parameters JSON:
-# "test" | "reverse" | "retry" | "placement" | "audio_listen" | "audio_quiz".
+# "test" | "reverse" | "reverse_extra" | "retry" | "placement" |
+# "audio_listen" | "audio_quiz".
 _ROUND_MODE = ExerciseSession.parameters["mode"].as_string()
 
 # Any session that produced a score (includes retry-mistakes rounds).
@@ -34,11 +35,15 @@ _HAS_SCORE = and_(
 # on a subset of pairs — would inflate test counts and average scores) nor a
 # placement round (one-off calibration for new users) nor an audio detail
 # quiz (different exercise, tiny question counts — would skew word-memo
-# averages). Reverse quizzes DO count — they test the full set, just
-# column-flipped.
+# averages) nor an extra reverse round (2nd+ reverse on one memorized set —
+# repeat practice that would let a single set farm the leaderboard average).
+# The FIRST reverse quiz DOES count — it tests the full set, column-flipped.
 _IS_SCORED_TEST = and_(
     _HAS_SCORE,
-    or_(_ROUND_MODE.is_(None), _ROUND_MODE.notin_(("retry", "placement", "audio_quiz"))),
+    or_(
+        _ROUND_MODE.is_(None),
+        _ROUND_MODE.notin_(("retry", "placement", "audio_quiz", "reverse_extra")),
+    ),
 )
 
 

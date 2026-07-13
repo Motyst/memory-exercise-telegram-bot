@@ -58,14 +58,22 @@ So players must raise pairs / difficulty / speed to keep leveling.
 Reference (90% score): level 2 after ~2 easy tests; a 30-pair advanced test
 gives 154 XP; a 100-pair advanced speed test gives 666 XP.
 
-Retries only give XP for the retried questions — no farming full-test XP by
-redoing mistakes. Reverse quiz counts as a full test.
+**Repeat-round throttle** (anti-farm — one memorized set pays out once):
+- Fresh test: full XP.
+- First reverse quiz after a study phase: ×0.5 XP, still counts as a real test.
+- Every further reverse on the same set: 0 XP, saved as `reverse_extra`,
+  excluded from stats/leaderboard/PB/achievements. Results show a nudge to
+  start a fresh test instead.
+- First retry-mistakes round: XP for the retried questions only. Second and
+  later retries: 0 XP.
+The counters reset whenever a new study phase starts (fresh test, level-up
+button, etc.), so normal play is unaffected.
 
-**Round types**: every quiz round is saved with a `mode` — `test`, `reverse`
-or `retry`. Reverse quizzes count as real tests everywhere. Retry rounds are
-**excluded** from stats, leaderboard, personal bests and achievements (they're
-practice on a subset), but still appear in `/admin export` with their mode so
-you can see them in the CSV.
+**Round types**: every quiz round is saved with a `mode` — `test`, `reverse`,
+`reverse_extra` or `retry`. Fresh tests and first reverses count as real tests
+everywhere. Retry and `reverse_extra` rounds are **excluded** from stats,
+leaderboard, personal bests and achievements (they're repeat practice), but
+still appear in `/admin export` with their mode so you can see them in the CSV.
 
 After editing constants: `systemctl restart mental_training_bot`. Existing
 XP totals stay; only future gains change.

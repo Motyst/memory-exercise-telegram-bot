@@ -267,12 +267,25 @@ async def _show_test_results(context, chat_id, state) -> None:
     total = max(len(pairs) - 1, 1) if fmt == "list" else len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
-    # "test" (fresh) | "reverse" | "retry" | "placement" — stored in session
-    # parameters so stats/leaderboard can exclude retry and placement rounds
+    # "test" (fresh) | "reverse" | "reverse_extra" (2nd+ reverse on the same
+    # set) | "retry" | "placement" — stored in session parameters so
+    # stats/leaderboard can exclude retry, placement and extra-reverse rounds
     # (practice/calibration, not real tests).
     round_mode = state.get("test_round_mode", "test")
     is_retry = round_mode == "retry"
     is_placement = round_mode == "placement"
+    is_extra_reverse = round_mode == "reverse_extra"
+
+    # XP throttle for repeat rounds on one memorized set: first reverse earns
+    # half (recalling backwards is real work, but the set was already paid out
+    # in full), everything after that — extra reverses, second+ retries —
+    # earns nothing. Blocks the farm loop: memorize once, reverse forever.
+    if round_mode == "reverse":
+        xp_mult = 0.5
+    elif is_extra_reverse or (is_retry and state.get("test_retry_rounds", 1) > 1):
+        xp_mult = 0.0
+    else:
+        xp_mult = 1.0
 
     # Personal best check + streak update + achievements + XP
     personal_best_text = None
@@ -305,8 +318,9 @@ async def _show_test_results(context, chat_id, state) -> None:
                     score=correct_count, max_score=total, completed=True,
                 )
                 # Personal best — not on retries (merged score mixes baseline
-                # with a redo) and not on placement (one-off calibration).
-                if not is_retry and not is_placement:
+                # with a redo), not on placement (one-off calibration), not on
+                # extra reverses (unscored practice rounds).
+                if not is_retry and not is_placement and not is_extra_reverse:
                     if prev_best is not None and score_pct > prev_best:
                         personal_best_text = f"🏆 *New personal best!* (previous: {prev_best:.0f}%)"
                     elif prev_best is None:
@@ -323,8 +337,8 @@ async def _show_test_results(context, chat_id, state) -> None:
                         streak_text = f"🔥 *{s}-day streak!* Keep it up!"
                 # Achievements — skipped on retries so a retried-to-100% score
                 # can't farm perfect-score achievements; skipped on placement
-                # (excluded from scored tests entirely).
-                if not is_retry and not is_placement:
+                # and extra reverses (excluded from scored tests entirely).
+                if not is_retry and not is_placement and not is_extra_reverse:
                     total_tests = await session_repo.count_completed_tests(db_user.id)
                     ctx = AchievementContext(
                         score_pct=score_pct,
@@ -353,14 +367,20 @@ async def _show_test_results(context, chat_id, state) -> None:
                             "date": utcnow().isoformat(),
                         }
                     })
-                # XP — based on THIS round's questions (a fresh test or
-                # reverse quiz = full set; retry-mistakes = just the retried
-                # subset, so retries can't farm full-test XP). None for
-                # placement — calibration, not grind.
+                # XP — based on THIS round's questions (a fresh test = full
+                # set; retry-mistakes = just the retried subset), scaled by
+                # the repeat-round throttle above (first reverse ×0.5,
+                # anything after that 0 — one memorized set pays out once).
+                # None for placement — calibration, not grind.
                 if is_xp_enabled() and not is_placement:
                     skill_code = EXERCISE_SKILLS.get(exercise_enum.value)
                     quiz_items = state.get("test_quiz_items", [])
-                    if skill_code and quiz_items:
+                    if skill_code and quiz_items and xp_mult == 0.0:
+                        xp_lines.append(
+                            "💡 _No XP — you've mastered this set. "
+                            "Start a fresh test to keep earning!_"
+                        )
+                    elif skill_code and quiz_items:
                         round_correct = sum(1 for r in results if r["correct"])
                         round_pct = round_correct / len(quiz_items) * 100
                         skill_repo = UserSkillRepository(session)
@@ -374,32 +394,37 @@ async def _show_test_results(context, chat_id, state) -> None:
                             level=skill_row.level,
                             hard_streak=skill_row.hard_streak,
                         )
+                        xp_award = round(xp_res.xp * xp_mult)
                         # ⚡ Fresh-mind bonus: test launched from a daily
                         # reminder ping within the window. Remove this block
                         # together with bot/reminders.py (lazy import — a
                         # top-level one would be a circular import).
                         fresh_xp = 0
                         if (
-                            xp_res.xp > 0 and round_mode == "test"
+                            xp_award > 0 and round_mode == "test"
                             and state.pop("fresh_mind_pending", None)
                         ):
                             from .reminders import claim_fresh_mind_bonus
                             fresh_xp = await claim_fresh_mind_bonus(
-                                user_repo, db_user, xp_res.xp
+                                user_repo, db_user, xp_award
                             )
                         new_level, xp_into, xp_need = level_from_xp(
-                            skill_row.xp + xp_res.xp + fresh_xp
+                            skill_row.xp + xp_award + fresh_xp
                         )
                         await skill_repo.add_xp(
-                            db_user.id, skill_code, xp_res.xp + fresh_xp,
+                            db_user.id, skill_code, xp_award + fresh_xp,
                             new_level, xp_res.new_hard_streak,
                         )
-                        if xp_res.xp > 0:
+                        if xp_award > 0:
                             skill = SKILLS[skill_code]
                             xp_lines.append(
-                                f"⭐ *+{xp_res.xp} XP* {skill.emoji} {skill.name} — "
+                                f"⭐ *+{xp_award} XP* {skill.emoji} {skill.name} — "
                                 f"Level {new_level} ({xp_into}/{xp_need})"
                             )
+                            if xp_mult < 1.0 and not compact:
+                                xp_lines.append(
+                                    "🔀 Reverse round — half XP (fresh tests pay full)"
+                                )
                             if fresh_xp:
                                 xp_lines.append(
                                     f"⚡ Fresh-mind bonus — +{fresh_xp} XP for "
@@ -542,6 +567,12 @@ async def start_retry_mistakes(query, context) -> None:
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", correct_results)
     set_user_state(context, "test_round_mode", "retry")
+    # Repeat-round throttle: only the first retry after a study phase earns
+    # XP (see _show_test_results) — otherwise deliberate mistakes + endless
+    # redo rounds would farm XP from a single memorized set.
+    set_user_state(
+        context, "test_retry_rounds", state.get("test_retry_rounds", 0) + 1
+    )
 
     n = len(quiz_items)
     await query.edit_message_text(
@@ -611,7 +642,17 @@ async def start_reverse_quiz(query, context) -> None:
     set_user_state(context, "test_difficulty", difficulty)
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
-    set_user_state(context, "test_round_mode", "reverse")
+    # Repeat-round throttle: the first reverse after a study phase is a real
+    # skill test (half XP, counts as a scored test); every further reverse on
+    # the same memorized set is saved as "reverse_extra" — no XP, excluded
+    # from stats/leaderboard/PB/achievements (see _show_test_results and
+    # repositories._IS_SCORED_TEST) so it can't be farmed.
+    reverse_rounds = state.get("test_reverse_rounds", 0) + 1
+    set_user_state(context, "test_reverse_rounds", reverse_rounds)
+    set_user_state(
+        context, "test_round_mode",
+        "reverse" if reverse_rounds == 1 else "reverse_extra",
+    )
 
     flip_note = (
         "This time you walk the list *backwards* — recall the word that came before!" if fmt == "list"

@@ -297,6 +297,10 @@ async def generate_word_memo_test(query, context, difficulty, count, round_mode:
     set_user_state(context, "test_chat_id", query.message.chat_id)
     set_user_state(context, "baseline_results", [])
     set_user_state(context, "test_round_mode", round_mode)
+    # Fresh study phase — reset the repeat-round counters that throttle XP
+    # on reverse/retry chains (see quiz_engine._show_test_results).
+    set_user_state(context, "test_reverse_rounds", 0)
+    set_user_state(context, "test_retry_rounds", 0)
     await query.edit_message_text(study_text, parse_mode=ParseMode.MARKDOWN)
 
     set_user_state(context, "test_study_message_id", query.message.message_id)

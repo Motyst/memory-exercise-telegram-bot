@@ -5,7 +5,8 @@ Working agreement: build one at a time, flag-gate anything user-facing, keep
 each feature removable like audio-viz. Details get worked out at build time —
 what's written here is direction, not final spec.
 
-Suggested build order: #2 → #4 → #1, with #3 as the next big exercise.
+Suggested build order: #2 → #4 → #9 → #1 (#9 is #1's notification
+plumbing), with #3 as the next big exercise.
 
 ---
 
@@ -103,6 +104,30 @@ milestone), pass at ≥90% to cross. Rare enough to feel like a boss fight.
   personal: shoutout post on milestone, classroom module unlocks, higher
   milestones = free month / 1-on-1 call.
 - Pairs well with #5 (daily community story) — trials as community events.
+
+## 9. Daily training reminder + fresh-mind XP bonus — #1's plumbing
+
+Opt-in daily notification with a one-tap preset test start; answering fast
+pays bonus XP. Builds the daily `job_queue` sweep + opt-in + quiet-hours
+plumbing that delayed recall (#1) needs — build this first, #1 rides on it.
+
+- `/settings`: pick reminder hour + preferred test (difficulty/count/speed/
+  format, default = last used). Off by default, one tap to disable, never
+  ping twice a day. Unanswered prompts expire silently.
+- Notification carries a one-tap button ("Start: Intermediate, 15 pairs")
+  with the preset — the button IS the feature, no menu friction.
+- **Fresh-mind bonus**: start within 15 min of the ping → ×1.25 XP on that
+  test, once per day. Multiplier not flat XP (flat = farmable with tiny
+  tests; multiplier scales with challenge rating like the rest of xp.py).
+- **Streak-saver variant** (phase 2, maybe the better default): only ping
+  when today's streak is about to die (e.g. 21:00 user time, no test yet).
+  Loss aversion > reward.
+- Once #1 exists, the same daily slot delivers recall prompts ("Quick one:
+  5 pairs from yesterday") — one notification channel, two features.
+- **Timezone catch**: Telegram exposes no user timezone. Setup asks "what
+  time is it for you right now?" (hour buttons) → derive + store offset in
+  prefs. Good enough until the Postgres era.
+- Achievement later: "Early bird — 7 on-time responses in a row."
 
 ## Parked ideas
 

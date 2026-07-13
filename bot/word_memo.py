@@ -146,6 +146,16 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         else:
             await generate_word_memo(query, context, difficulty, count)
 
+    elif action == "speed_run":
+        # ⚡ Speed run (progression ladder): rerun the same test with speed
+        # mode on. Button only appears on test results, so mode is test.
+        set_user_state(context, "speed_mode", True)
+        state = get_user_state(context)
+        difficulty = state.get("difficulty", Difficulty.BEGINNER)
+        count = state.get("count", 10)
+        await cleanup_bot_messages(context.bot, query.message.chat_id, state)
+        await generate_word_memo_test(query, context, difficulty, count)
+
     elif action == "again":
         state = get_user_state(context)
         difficulty = state.get("difficulty", Difficulty.BEGINNER)

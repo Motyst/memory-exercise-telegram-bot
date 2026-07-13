@@ -39,6 +39,7 @@ from exercises.word_memorization import (
     is_fuzzy_match,
     get_progression_suggestion,
     get_placement_recommendation,
+    should_offer_speed_run,
 )
 from .features import is_xp_enabled
 from .recent_words import save_recent_words
@@ -397,9 +398,12 @@ async def _show_test_results(context, chat_id, state) -> None:
     # Progressive difficulty suggestion — not on placement, which makes
     # its own recommendation below.
     count = state.get("count", len(pairs))
+    speed_mode = state.get("speed_mode", False)
     progression_text = None
     if not is_placement:
-        progression_text = get_progression_suggestion(difficulty, count, score_pct, fmt)
+        progression_text = get_progression_suggestion(
+            difficulty, count, score_pct, fmt, speed_mode
+        )
 
     results_text = exercise.format_test_results(
         pairs, merged_results, difficulty,
@@ -448,11 +452,18 @@ async def _show_test_results(context, chat_id, state) -> None:
         ])
     else:
         has_mistakes = any(not r["correct"] for r in merged_results)
-        keyboard = exercise.get_results_keyboard(
+        kb_kwargs = dict(
             has_mistakes=has_mistakes,
             next_count=NEXT_COUNT.get(count),
             fmt=fmt,
         )
+        # Progression-ladder speed button is word-memo only; other engine
+        # exercises don't take the kwarg.
+        if exercise_key == "word_memo":
+            kb_kwargs["offer_speed_run"] = should_offer_speed_run(
+                count, score_pct, speed_mode
+            )
+        keyboard = exercise.get_results_keyboard(**kb_kwargs)
 
     await context.bot.send_message(
         chat_id=chat_id, text=results_text, parse_mode=ParseMode.MARKDOWN,

@@ -98,8 +98,17 @@ def get_placement_recommendation(score_pct: float) -> tuple[Difficulty, int]:
     return Difficulty.ADVANCED, 10
 
 
+# Progression ladder: at ≥90% suggest ONE next step in order more words →
+# speed mode → harder words, each backed by a one-tap button where possible.
+# Flip to False to restore the old two-option suggestion and hide the
+# ⚡ Speed run button everywhere (bot/quiz_engine.py + bot/word_memo.py
+# speed_run handler go dead but harmless).
+PROGRESSION_LADDER = True
+
+
 def get_progression_suggestion(
-    difficulty: Difficulty, count: int, score_pct: float, fmt: str = "pairs"
+    difficulty: Difficulty, count: int, score_pct: float, fmt: str = "pairs",
+    speed_mode: bool = False,
 ) -> str | None:
     """
     Return a suggestion string if the user should level up, or None.
@@ -112,16 +121,41 @@ def get_progression_suggestion(
     next_cnt = NEXT_COUNT.get(count)
     unit = FORMAT_UNITS.get(fmt, "pairs")
 
-    suggestions = []
-    if next_cnt and next_cnt <= 100:
-        suggestions.append(f"try *{next_cnt} {unit}*")
-    if next_diff:
-        suggestions.append(f"step up to *{DIFFICULTY_NAMES[next_diff]}*")
+    if not PROGRESSION_LADDER:
+        suggestions = []
+        if next_cnt and next_cnt <= 100:
+            suggestions.append(f"try *{next_cnt} {unit}*")
+        if next_diff:
+            suggestions.append(f"step up to *{DIFFICULTY_NAMES[next_diff]}*")
+        if not suggestions:
+            return None
+        return "💡 You're doing great! Maybe " + " or ".join(suggestions) + "?"
 
-    if not suggestions:
-        return None
+    # One rung at a time: count first (existing Level Up button), then speed
+    # (Speed run button), then word difficulty (text only — new word pool).
+    if next_cnt:
+        step = f"try *{next_cnt} {unit}* — ⬆️ Level up button below"
+    elif not speed_mode:
+        step = "try *⚡ Speed mode* — same test, half the study time"
+    elif next_diff:
+        step = f"step up to *{DIFFICULTY_NAMES[next_diff]}*"
+    else:
+        return None  # 100 words, speed mode, advanced — top of the ladder
 
-    return "💡 You're doing great! Maybe " + " or ".join(suggestions) + "?"
+    return (
+        f"💡 You're doing great! Next challenge: {step}.\n"
+        f"_Push harder anytime: more {unit}, faster pace, or harder words._"
+    )
+
+
+def should_offer_speed_run(count: int, score_pct: float, speed_mode: bool) -> bool:
+    """⚡ Speed run button appears when the ladder's next rung is speed mode."""
+    return (
+        PROGRESSION_LADDER
+        and score_pct >= 90
+        and not speed_mode
+        and NEXT_COUNT.get(count) is None
+    )
 
 
 class WordMemorizationExercise(BaseExercise):
@@ -290,6 +324,7 @@ class WordMemorizationExercise(BaseExercise):
     def get_results_keyboard(
         self, has_mistakes: bool = False,
         next_count: int | None = None, fmt: str = "pairs",
+        offer_speed_run: bool = False,
     ) -> InlineKeyboardMarkup:
         """Results keyboard with Retry Mistakes, Reverse Quiz and Level Up options."""
         rows = []
@@ -309,6 +344,13 @@ class WordMemorizationExercise(BaseExercise):
             rows.append([InlineKeyboardButton(
                 f"⬆️ Level up: {next_count} {unit}",
                 callback_data=f"{self.exercise_type}:next_count:{next_count}",
+            )])
+
+        # Progression ladder: speed rung — same test, speed mode on
+        if offer_speed_run:
+            rows.append([InlineKeyboardButton(
+                "⚡ Speed run: same test, half time",
+                callback_data=f"{self.exercise_type}:speed_run",
             )])
 
         # Reverse quiz — always available after a test

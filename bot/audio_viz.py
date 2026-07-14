@@ -78,6 +78,24 @@ async def _save_session(
         )
 
 
+async def _delete_audio_message(context, chat_id: int, state: dict) -> None:
+    """Delete the story's audio message from the chat.
+
+    Telegram's music player queues every audio file in a chat as a playlist,
+    so a finished story auto-plays into an older one still in the chat. Keeping
+    at most one story audio around (delete on finish + before sending the next)
+    kills the autoplay; the quiz path also relies on this as anti-cheat.
+    """
+    audio_msg_id = state.pop("audio_msg_id", None)
+    if audio_msg_id:
+        try:
+            await context.bot.delete_message(
+                chat_id=chat_id, message_id=audio_msg_id,
+            )
+        except Exception:
+            pass
+
+
 async def handle_audio_viz_callback(query, context, data: str) -> None:
     if not is_flag_enabled(AUDIO_VIZ_ENABLED_KEY):
         await query.edit_message_text(
@@ -134,6 +152,10 @@ async def _start_story(query, context, exercise, bucket: str) -> None:
 
     heard = await _get_heard(user.id)
     story = pick_story(stories, heard)
+
+    # Clear any leftover audio from an abandoned session first — two story
+    # audios in the chat = Telegram autoplays one into the other.
+    await _delete_audio_message(context, query.message.chat_id, _state(context))
 
     await query.edit_message_text(
         f"🎧 *{story.title}* ({LENGTH_BUCKETS[bucket]})\n\n"
@@ -198,6 +220,8 @@ async def _finish_passive(query, context, exercise) -> None:
         )
         return
 
+    await _delete_audio_message(context, query.message.chat_id, state)
+
     try:
         await _save_session(query.from_user.id, story_id, bucket, quiz_taken=False)
         await _mark_heard(query.from_user.id, story_id)
@@ -223,14 +247,7 @@ async def _start_quiz(query, context) -> None:
 
     # Delete the audio message so answers come from memory, not re-listening
     # (same anti-cheat idea as deleting typed answers in word-memo tests).
-    audio_msg_id = state.pop("audio_msg_id", None)
-    if audio_msg_id:
-        try:
-            await context.bot.delete_message(
-                chat_id=query.message.chat_id, message_id=audio_msg_id,
-            )
-        except Exception:
-            pass
+    await _delete_audio_message(context, query.message.chat_id, state)
 
     # Shuffle each question's options once, remapping the correct index.
     items = []

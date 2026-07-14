@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 # Keep at most this many story ids in the anti-repeat preference list.
 HEARD_WINDOW = 100
 
+# Preference key holding the last sent story audio message id. Persisted so
+# the audio can still be deleted after a bot restart wipes in-memory state —
+# a leaked audio message re-enables Telegram's playlist autoplay.
+AUDIO_MSG_PREF_KEY = "audio_last_msg_id"
+
+# Post-listen focus check buttons: how often did the mind wander?
+DISTRACTION_OPTIONS = ["0", "1–2", "3–5", "6+"]
+
 
 def _state(context) -> dict:
     if "state" not in context.user_data:
@@ -60,20 +68,24 @@ async def _mark_heard(telegram_id: int, story_id: str) -> None:
 async def _save_session(
     telegram_id: int, story_id: str, bucket: str,
     quiz_taken: bool, score: int | None = None, max_score: int | None = None,
+    distractions: str | None = None,
 ) -> None:
     async with get_session() as session:
         db_user = await UserRepository(session).get_by_telegram_id(telegram_id)
         if not db_user:
             return
+        parameters = {
+            "mode": "audio_quiz" if quiz_taken else "audio_listen",
+            "story": story_id,
+            "quiz_taken": quiz_taken,
+        }
+        if distractions is not None:
+            parameters["distractions"] = distractions
         await ExerciseSessionRepository(session).create(
             user_id=db_user.id,
             exercise_type=ExerciseType.AUDIO_VISUALIZATION,
             difficulty=bucket,
-            parameters={
-                "mode": "audio_quiz" if quiz_taken else "audio_listen",
-                "story": story_id,
-                "quiz_taken": quiz_taken,
-            },
+            parameters=parameters,
             score=score, max_score=max_score, completed=True,
         )
 
@@ -86,12 +98,25 @@ async def _delete_audio_message(context, chat_id: int, state: dict) -> None:
     at most one story audio around (delete on finish + before sending the next)
     kills the autoplay; the quiz path also relies on this as anti-cheat.
     """
-    audio_msg_id = state.pop("audio_msg_id", None)
-    if audio_msg_id:
+    ids = set()
+    msg_id = state.pop("audio_msg_id", None)
+    if msg_id:
+        ids.add(msg_id)
+    # Also collect the persisted id — covers sessions whose in-memory state
+    # was lost to a bot restart (chat_id == telegram user id in private chats).
+    try:
+        async with get_session() as session:
+            repo = UserRepository(session)
+            db_user = await repo.get_by_telegram_id(chat_id)
+            persisted = (db_user.preferences or {}).get(AUDIO_MSG_PREF_KEY) if db_user else None
+            if persisted:
+                ids.add(persisted)
+                await repo.update_preferences(chat_id, {AUDIO_MSG_PREF_KEY: None})
+    except Exception as e:
+        logger.warning(f"Could not read persisted audio msg id: {e}")
+    for mid in ids:
         try:
-            await context.bot.delete_message(
-                chat_id=chat_id, message_id=audio_msg_id,
-            )
+            await context.bot.delete_message(chat_id=chat_id, message_id=mid)
         except Exception:
             pass
 
@@ -132,6 +157,9 @@ async def handle_audio_viz_callback(query, context, data: str) -> None:
 
     elif action == "done":
         await _finish_passive(query, context, exercise)
+
+    elif action == "dist":
+        await _record_distractions(query, context, exercise, parts)
 
     elif action == "quiz":
         await _start_quiz(query, context)
@@ -188,6 +216,16 @@ async def _start_story(query, context, exercise, bucket: str) -> None:
         )
         return
 
+    # Persist the message id so a bot restart can't leak this audio
+    # (a leaked audio re-enables Telegram's playlist autoplay).
+    try:
+        async with get_session() as session:
+            await UserRepository(session).update_preferences(
+                user.id, {AUDIO_MSG_PREF_KEY: audio_msg.message_id}
+            )
+    except Exception as e:
+        logger.warning(f"Could not persist audio msg id: {e}")
+
     offer_quiz = is_flag_enabled(AUDIO_VIZ_QUIZ_ENABLED_KEY) and story.has_quiz
     await context.bot.send_message(
         chat_id=query.message.chat_id,
@@ -210,6 +248,37 @@ async def _start_story(query, context, exercise, bucket: str) -> None:
 
 
 async def _finish_passive(query, context, exercise) -> None:
+    """Done tapped: delete the audio, then ask the one-tap focus check.
+
+    The session is saved when the focus check is answered (see
+    _record_distractions) — abandoning the question loses one listen record,
+    acceptable for a single tap.
+    """
+    state = _state(context)
+    story_id = state.get("audio_story_id")
+    if not story_id:
+        await query.edit_message_text(
+            "Session expired. Start a new story!",
+            reply_markup=exercise.get_completion_keyboard(),
+        )
+        return
+
+    await _delete_audio_message(context, query.message.chat_id, state)
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(opt, callback_data=f"audio_viz:dist:{i}")
+        for i, opt in enumerate(DISTRACTION_OPTIONS)
+    ]])
+    await query.edit_message_text(
+        "🎧 *Story complete!*\n\n"
+        "One quick check — how many times did your mind wander "
+        "while listening?",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard,
+    )
+
+
+async def _record_distractions(query, context, exercise, parts: list[str]) -> None:
     state = _state(context)
     story_id = state.get("audio_story_id")
     bucket = state.get("audio_bucket", "?")
@@ -220,19 +289,32 @@ async def _finish_passive(query, context, exercise) -> None:
         )
         return
 
-    await _delete_audio_message(context, query.message.chat_id, state)
+    try:
+        label = DISTRACTION_OPTIONS[int(parts[2])]
+    except (IndexError, ValueError):
+        return
 
     try:
-        await _save_session(query.from_user.id, story_id, bucket, quiz_taken=False)
+        await _save_session(
+            query.from_user.id, story_id, bucket,
+            quiz_taken=False, distractions=label,
+        )
         await _mark_heard(query.from_user.id, story_id)
     except Exception as e:
         logger.error(f"Failed to save audio session: {e}")
 
     state.pop("audio_story_id", None)
+    if label == "0":
+        focus_note = "Zero drift — deep focus. That's the goal state."
+    else:
+        focus_note = (
+            f"Mind wandered {label} times — noticing it IS the training. "
+            "Watch this number fall week over week."
+        )
     await query.edit_message_text(
-        "🎧 *Story complete!*\n\n"
-        "Nice work — every vividly imagined scene strengthens your "
-        "visualization. Come back for another story anytime.",
+        f"🎧 *Story complete!*\n\n{focus_note}\n\n"
+        "Every vividly imagined scene strengthens your visualization. "
+        "Come back for another story anytime.",
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=exercise.get_completion_keyboard(),
     )

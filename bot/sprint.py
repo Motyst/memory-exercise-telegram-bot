@@ -100,6 +100,12 @@ async def record_sprint_progress(
                 f"🏁 {_circles(0)} Daily sprint: {SPRINT_GOAL}× 90%+ tests "
                 f"({SPRINT_MIN_WORDS}+ words) within {SPRINT_WINDOW_MINUTES} min"
             )
+            # Say why THIS test didn't open a run — a 10-word list scoring
+            # 8/9 links is 88.9%, which surprises people expecting a tick.
+            if not passed:
+                line += f" · _this one: {score_pct:.0f}% — need 90%+_"
+            elif count < SPRINT_MIN_WORDS:
+                line += f" · _this one: {count} words — need {SPRINT_MIN_WORDS}+_"
         return f"{expired_note}\n{line}" if expired_note else line
 
     # Active run.

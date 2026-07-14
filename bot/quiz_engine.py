@@ -604,18 +604,28 @@ async def start_reverse_quiz(query, context) -> None:
 
     # Build reverse quiz. Pairs: for each question, flip which word is shown
     # vs asked (we look at the original results to find what was shown, then
-    # show the opposite word this time). List: walk the chain backwards — show
-    # a word, recall the one right before it, from the end of the list down.
+    # show the opposite word this time). List: flip the walk direction relative
+    # to the last round — forward → backward → forward … (mirrors how pairs
+    # toggle on every reverse instead of sticking backwards).
     fmt = state.get("test_format", "pairs")
     result_by_pair = {r["pair_index"]: r for r in last_results}
 
     quiz_items = []
     if fmt == "list":
-        for idx in range(len(last_pairs) - 2, -1, -1):
-            quiz_items.append({
-                "pair_index": idx, "direction": "prev",
-                "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx],
-            })
+        last_dir = last_results[0].get("direction", "next") if last_results else "next"
+        list_dir = "next" if last_dir == "prev" else "prev"
+        if list_dir == "next":
+            for idx in range(len(last_pairs) - 1):
+                quiz_items.append({
+                    "pair_index": idx, "direction": "next",
+                    "shown_word": last_pairs[idx], "expected": last_pairs[idx + 1],
+                })
+        else:
+            for idx in range(len(last_pairs) - 2, -1, -1):
+                quiz_items.append({
+                    "pair_index": idx, "direction": "prev",
+                    "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx],
+                })
     else:
         quiz_order = list(range(len(last_pairs)))
         random.shuffle(quiz_order)
@@ -654,10 +664,14 @@ async def start_reverse_quiz(query, context) -> None:
         "reverse" if reverse_rounds == 1 else "reverse_extra",
     )
 
-    flip_note = (
-        "This time you walk the list *backwards* — recall the word that came before!" if fmt == "list"
-        else "This time the columns are flipped!"
-    )
+    if fmt == "list":
+        flip_note = (
+            "Back to *forward* order — recall the word that comes next!"
+            if quiz_items and quiz_items[0]["direction"] == "next"
+            else "This time you walk the list *backwards* — recall the word that came before!"
+        )
+    else:
+        flip_note = "This time the columns are flipped!"
     await query.edit_message_text(
         f"🔀 *Reverse Quiz — {len(quiz_items)} questions*\n\n"
         f"{flip_note}\n"

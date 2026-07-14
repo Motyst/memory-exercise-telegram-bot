@@ -31,6 +31,7 @@ from gamification import (
     AchievementContext, evaluate_achievements,
     SKILLS, EXERCISE_SKILLS, compute_test_xp, level_from_xp,
 )
+from gamification.xp import MIN_XP_SCORE_PCT
 from exercises.word_memorization import (
     QUESTION_TIME_LIMIT,
     DIFFICULTY_NAMES,
@@ -43,6 +44,7 @@ from exercises.word_memorization import (
 )
 from .features import is_xp_enabled
 from .recent_words import save_recent_words
+from .sprint import record_sprint_progress
 from .state import (
     get_answer_lock, get_job_user_state, get_user_state,
     set_user_state, track_bot_message, cleanup_bot_messages,
@@ -292,6 +294,7 @@ async def _show_test_results(context, chat_id, state) -> None:
     streak_text = None
     new_achievements = []
     xp_lines = []
+    sprint_line = None
     compact = False
     try:
         async with get_session() as session:
@@ -438,6 +441,21 @@ async def _show_test_results(context, chat_id, state) -> None:
                                 xp_lines.append(
                                     f"🎉 *LEVEL UP!* {skill.name} is now *Level {new_level}*"
                                 )
+                        elif round_pct < MIN_XP_SCORE_PCT:
+                            xp_lines.append(
+                                f"💡 _No XP below {MIN_XP_SCORE_PCT:.0f}% — "
+                                "try a smaller or easier set and build up!_"
+                            )
+                # 🏁 Daily sprint (cosmetic) — fresh tests only, so retry /
+                # reverse / placement rounds can't tick it. Remove this block
+                # together with bot/sprint.py.
+                if round_mode == "test" and exercise_key == "word_memo":
+                    sprint_line = await record_sprint_progress(
+                        user_repo, chat_id, db_user.preferences,
+                        count=len(pairs), difficulty=difficulty_value,
+                        speed_mode=state.get("speed_mode", False),
+                        score_pct=score_pct,
+                    )
     except Exception as e:
         logger.error(f"Failed to save/check test results: {e}")
 
@@ -467,6 +485,9 @@ async def _show_test_results(context, chat_id, state) -> None:
 
     if xp_lines:
         results_text += "\n\n" + "\n".join(xp_lines)
+
+    if sprint_line:
+        results_text += "\n\n" + sprint_line
 
     state["test_active"] = False
     state["last_test_results"] = merged_results

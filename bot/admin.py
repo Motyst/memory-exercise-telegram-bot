@@ -23,6 +23,7 @@ from .access import admin_only
 from .features import (
     is_xp_enabled, set_xp_enabled, is_flag_enabled, set_flag,
     AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY, REMINDERS_ENABLED_KEY,
+    SPRINT_ENABLED_KEY,
 )
 from .menu import sync_command_menu
 from .redeem import admin_codes
@@ -54,6 +55,9 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     elif sub == "reminders":
         await _admin_flag(update, args[1:], REMINDERS_ENABLED_KEY,
                           "🔔 Daily reminders", "/admin reminders on|off")
+    elif sub == "sprint":
+        await _admin_flag(update, args[1:], SPRINT_ENABLED_KEY,
+                          "🏁 Daily sprint challenge", "/admin sprint on|off")
     else:
         await _admin_overview(update)
 
@@ -66,6 +70,7 @@ async def _admin_overview(update: Update) -> None:
     audio_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_ENABLED_KEY) else "OFF ⛔"
     audio_quiz_status = "ON ✅" if is_flag_enabled(AUDIO_VIZ_QUIZ_ENABLED_KEY) else "OFF ⛔"
     reminders_status = "ON ✅" if is_flag_enabled(REMINDERS_ENABLED_KEY) else "OFF ⛔"
+    sprint_status = "ON ✅" if is_flag_enabled(SPRINT_ENABLED_KEY) else "OFF ⛔"
     text = (
         "🛠 Admin — Bot Overview\n\n"
         f"👥 Users: {stats['total_users']} total, +{stats['new_users_week']} this week\n"
@@ -74,7 +79,8 @@ async def _admin_overview(update: Update) -> None:
         f"📊 Avg score (all users): {stats['avg_score']:.0f}%\n"
         f"⭐ XP system: {xp_status}\n"
         f"🎧 Audio visualization: {audio_status} (quiz: {audio_quiz_status})\n"
-        f"🔔 Daily reminders: {reminders_status}\n\n"
+        f"🔔 Daily reminders: {reminders_status}\n"
+        f"🏁 Daily sprint: {sprint_status}\n\n"
         "Commands:\n"
         "/admin users — per-user progress\n"
         "/admin export — CSV of all sessions\n"
@@ -84,7 +90,8 @@ async def _admin_overview(update: Update) -> None:
         "/admin xp on|off — toggle the XP/level system\n"
         "/admin audio on|off — toggle the audio exercise\n"
         "/admin audioquiz on|off — offer the detail quiz after audio\n"
-        "/admin reminders on|off — toggle daily reminders"
+        "/admin reminders on|off — toggle daily reminders\n"
+        "/admin sprint on|off — toggle the daily sprint challenge"
     )
     await update.message.reply_text(text)
 

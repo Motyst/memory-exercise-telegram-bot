@@ -16,16 +16,19 @@ XP_ENABLED_KEY = "xp_enabled"
 AUDIO_VIZ_ENABLED_KEY = "audio_viz_enabled"
 AUDIO_VIZ_QUIZ_ENABLED_KEY = "audio_viz_quiz_enabled"
 REMINDERS_ENABLED_KEY = "reminders_enabled"
+SPRINT_ENABLED_KEY = "sprint_enabled"
 
 # Defaults apply when the key has never been set in the DB.
 # Audio visualization ships dark: admin flips it on when content is ready.
 # Reminders default on — the feature is opt-in per user anyway; the flag is
 # the kill switch (/admin reminders off hides setup and stops all pings).
+# Sprint default on — cosmetic results line, kill switch /admin sprint off.
 _flags: dict[str, bool] = {
     XP_ENABLED_KEY: True,
     AUDIO_VIZ_ENABLED_KEY: False,
     AUDIO_VIZ_QUIZ_ENABLED_KEY: False,
     REMINDERS_ENABLED_KEY: True,
+    SPRINT_ENABLED_KEY: True,
 }
 
 

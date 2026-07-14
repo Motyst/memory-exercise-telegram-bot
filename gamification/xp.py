@@ -60,8 +60,16 @@ DIFFICULTY_MULT = {
 }
 
 SPEED_MULT_FAST = 1.3      # speed-mode study time earns 30% more
-ACCURACY_EXPONENT = 1.5    # rewards accuracy super-linearly (80% -> x0.72)
+ACCURACY_EXPONENT = 2.0    # rewards accuracy super-linearly (80% -> x0.64)
 PERFECT_BONUS = 1.2        # extra 20% for a flawless test
+
+# Anti-farm accuracy gates: a failed test (below MIN_XP_SCORE_PCT) earns
+# nothing — otherwise spamming huge lists at low accuracy out-earns honest
+# small tests (100-word advanced at 30% used to beat a perfect 10-pair run).
+# The hard streak additionally requires HARD_STREAK_MIN_PCT: attempting a
+# hard test isn't enough, you have to perform on it.
+MIN_XP_SCORE_PCT = 50.0
+HARD_STREAK_MIN_PCT = 70.0
 
 # Diminishing returns: an exercise below your level's expected challenge earns
 # CR/expected of the XP, never less than the floor.
@@ -127,12 +135,16 @@ def compute_test_xp(
     expected = expected_challenge(level)
     efficiency = max(min(cr / expected, 1.0), EFFICIENCY_FLOOR)
 
+    if score_pct < MIN_XP_SCORE_PCT:
+        # Failed test: no XP, hard streak broken.
+        return XpResult(0, False, 0, 1.0, efficiency)
+
     accuracy = max(score_pct, 0.0) / 100.0
     xp = BASE_XP_PER_PAIR * cr * (accuracy ** ACCURACY_EXPONENT) * efficiency
     if score_pct >= 100:
         xp *= PERFECT_BONUS
 
-    is_hard = cr >= expected
+    is_hard = cr >= expected and score_pct >= HARD_STREAK_MIN_PCT
     new_streak = hard_streak + 1 if is_hard else 0
     streak_mult = 1.0
     if is_hard and new_streak > 1:

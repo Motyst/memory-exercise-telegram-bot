@@ -43,8 +43,10 @@ All knobs in `gamification/xp.py`, top of file:
 | `BASE_XP_PER_PAIR` | 4.0 | Raw XP per word pair |
 | `DIFFICULTY_MULT` | 1.0 / 1.25 / 1.5 | beginner / intermediate / advanced |
 | `SPEED_MULT_FAST` | 1.3 | Speed mode bonus |
-| `ACCURACY_EXPONENT` | 1.5 | Higher = accuracy matters more |
+| `ACCURACY_EXPONENT` | 2.0 | Higher = accuracy matters more |
 | `PERFECT_BONUS` | 1.2 | Extra 20% for a 100% test |
+| `MIN_XP_SCORE_PCT` | 50 | Below this score a test earns 0 XP (anti-farm) |
+| `HARD_STREAK_MIN_PCT` | 70 | Hard streak needs this score, not just a hard attempt |
 | `EFFICIENCY_FLOOR` | 0.15 | Outgrown exercises never drop below 15% XP |
 | `HARD_STREAK_BONUS_PER` | 0.10 | +10% per consecutive hard test |
 | `HARD_STREAK_BONUS_CAP` | 0.50 | Streak bonus max +50% |

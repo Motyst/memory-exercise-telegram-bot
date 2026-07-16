@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 from config import get_settings
-from database import init_db, close_db
+from database import init_db, close_db, get_session, UserRepository
 from .commands import (
     start_command,
     help_command,
@@ -59,10 +59,24 @@ async def on_startup(application: Application) -> None:
     await init_db()
     logger.info("Database initialized")
     await load_feature_flags()
+    await _remove_admins_from_leaderboard()
     await sync_command_menu(application.bot)
     schedule_reminder_job(application)
     bot_info = await application.bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
+
+
+async def _remove_admins_from_leaderboard() -> None:
+    """Admins never compete with members: the leaderboard query excludes their
+    IDs, and this startup sweep clears any opt-in flag set before that rule
+    (or before an ID was added to ADMIN_TELEGRAM_IDS)."""
+    async with get_session() as session:
+        user_repo = UserRepository(session)
+        for admin_id in get_settings().admin_ids:
+            user = await user_repo.get_by_telegram_id(admin_id)
+            if user and user.leaderboard_opt_in:
+                await user_repo.set_leaderboard_opt_in(admin_id, False)
+                logger.info(f"Removed admin {admin_id} from the leaderboard")
 
 
 async def on_shutdown(application: Application) -> None:

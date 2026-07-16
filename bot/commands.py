@@ -5,11 +5,13 @@ that's quiz_engine.py; exercise flows live in their own modules.
 """
 
 import logging
+from typing import Optional
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
+from config import get_settings
 from database import (
     get_session, UserRepository, ExerciseSessionRepository,
     AchievementRepository, UserSkillRepository,
@@ -19,6 +21,7 @@ from gamification import (
     ACHIEVEMENTS, SKILLS, level_from_xp, render_progress_bar,
 )
 from exercises.word_memorization import QUESTION_TIME_LIMIT, DIFF_EMOJI
+from .access import is_admin
 from .features import is_xp_enabled, is_exercise_enabled
 from .quiz_engine import cancel_question_timer
 from .reminders import reminder_settings_text, reminder_settings_rows
@@ -299,12 +302,19 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     async with get_session() as session:
         db_user = await UserRepository(session).get_by_telegram_id(user.id)
         opted_in = bool(db_user and db_user.leaderboard_opt_in)
-        board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
+        board = await _get_leaderboard(session)
 
     text = _format_leaderboard(board, user.id)
     await update.message.reply_text(
         text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_leaderboard_keyboard(opted_in),
+        reply_markup=_leaderboard_keyboard(opted_in, user.id),
+    )
+
+
+async def _get_leaderboard(session) -> list[dict]:
+    """Leaderboard with admins excluded — admins train too but don't compete."""
+    return await ExerciseSessionRepository(session).get_leaderboard(
+        limit=10, exclude_telegram_ids=get_settings().admin_ids,
     )
 
 
@@ -326,18 +336,27 @@ def _format_leaderboard(board: list[dict], viewer_telegram_id: int) -> str:
     return "\n".join(lines)
 
 
-def _leaderboard_keyboard(opted_in: bool) -> InlineKeyboardMarkup:
+def _leaderboard_rows(opted_in: bool, viewer_telegram_id: int) -> list[list[InlineKeyboardButton]]:
+    """Join/leave button rows; admins get none — they can't be listed."""
+    if is_admin(viewer_telegram_id):
+        return []
     if opted_in:
         button = InlineKeyboardButton("🚪 Leave leaderboard", callback_data="lb:leave")
     else:
         button = InlineKeyboardButton("✋ Join leaderboard", callback_data="lb:join")
-    return InlineKeyboardMarkup([[button]])
+    return [[button]]
+
+
+def _leaderboard_keyboard(opted_in: bool, viewer_telegram_id: int) -> Optional[InlineKeyboardMarkup]:
+    rows = _leaderboard_rows(opted_in, viewer_telegram_id)
+    return InlineKeyboardMarkup(rows) if rows else None
 
 
 async def handle_leaderboard_callback(query, context, data: str) -> None:
     action = data.split(":")[1]
-    opt_in = action == "join"
     user = query.from_user
+    # Admins never join — covers stale join buttons rendered before this rule.
+    opt_in = action == "join" and not is_admin(user.id)
     async with get_session() as session:
         user_repo = UserRepository(session)
         await user_repo.get_or_create(
@@ -345,13 +364,16 @@ async def handle_leaderboard_callback(query, context, data: str) -> None:
             first_name=user.first_name, last_name=user.last_name,
         )
         await user_repo.set_leaderboard_opt_in(user.id, opt_in)
-        board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
+        board = await _get_leaderboard(session)
 
     text = _format_leaderboard(board, user.id)
-    text += "\n\n✅ You joined the leaderboard!" if opt_in else "\n\n👋 You left the leaderboard."
+    if is_admin(user.id):
+        text += "\n\n🛡 Admins aren't listed on the leaderboard."
+    else:
+        text += "\n\n✅ You joined the leaderboard!" if opt_in else "\n\n👋 You left the leaderboard."
     await query.edit_message_text(
         text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_leaderboard_keyboard(opt_in),
+        reply_markup=_leaderboard_keyboard(opt_in, user.id),
     )
 
 
@@ -378,14 +400,9 @@ async def handle_menu_callback(query, context, data: str) -> None:
         async with get_session() as session:
             db_user = await UserRepository(session).get_by_telegram_id(user.id)
             opted_in = bool(db_user and db_user.leaderboard_opt_in)
-            board = await ExerciseSessionRepository(session).get_leaderboard(limit=10)
-        toggle = (
-            InlineKeyboardButton("🚪 Leave leaderboard", callback_data="lb:leave")
-            if opted_in
-            else InlineKeyboardButton("✋ Join leaderboard", callback_data="lb:join")
-        )
+            board = await _get_leaderboard(session)
         kb = InlineKeyboardMarkup([
-            [toggle],
+            *_leaderboard_rows(opted_in, user.id),
             [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
         ])
         await query.edit_message_text(

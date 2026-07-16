@@ -8,7 +8,7 @@ fast as the session table grows.
 
 import secrets
 from datetime import datetime, timedelta, date
-from typing import Optional
+from typing import Iterable, Optional
 from sqlalchemy import select, update, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,9 +317,18 @@ class ExerciseSessionRepository:
     # Leaderboard & admin analytics
     # ------------------------------------------------------------------
 
-    async def get_leaderboard(self, limit: int = 10, min_tests: int = 3) -> list[dict]:
-        """Opted-in users ranked by average test score (min_tests required)."""
-        result = await self.session.execute(
+    async def get_leaderboard(
+        self,
+        limit: int = 10,
+        min_tests: int = 3,
+        exclude_telegram_ids: Iterable[int] = (),
+    ) -> list[dict]:
+        """Opted-in users ranked by average test score (min_tests required).
+
+        exclude_telegram_ids: never list these users even if opted in —
+        callers pass the admin IDs so admins can't compete with members.
+        """
+        stmt = (
             select(
                 User.telegram_id, User.first_name, User.username,
                 User.current_streak,
@@ -334,6 +343,10 @@ class ExerciseSessionRepository:
             .order_by(func.avg(_PCT).desc())
             .limit(limit)
         )
+        excluded = list(exclude_telegram_ids)
+        if excluded:
+            stmt = stmt.where(User.telegram_id.not_in(excluded))
+        result = await self.session.execute(stmt)
         return [
             {
                 "telegram_id": r.telegram_id,

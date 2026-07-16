@@ -8,6 +8,8 @@ Session bookkeeping:
 - Passive listen  -> mode "audio_listen", no score, NO streak (passive work).
 - Detail quiz     -> mode "audio_quiz", scored, streak counts. Excluded from
   stats/leaderboard/PB via _IS_SCORED_TEST (see database/repositories.py).
+- XP + audio achievements -> gamification/audio_xp.py (separate
+  "visualization" bar, first-listen-only, daily cap; /admin audioxp on|off).
 """
 
 import logging
@@ -24,7 +26,11 @@ from exercises.audio_visualization import (
     LENGTH_BUCKETS, HEARD_PREF_KEY,
     scan_library, pick_story, get_cached_file_id, save_file_id,
 )
-from .features import is_flag_enabled, AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY
+from gamification.audio_xp import process_audio_completion
+from .features import (
+    is_flag_enabled, is_xp_enabled,
+    AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY, AUDIO_XP_ENABLED_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -294,12 +300,19 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
     except (IndexError, ValueError):
         return
 
+    xp_lines: list[str] = []
     try:
+        # First-listen check must happen before _mark_heard — replays earn no XP.
+        first_time = story_id not in await _get_heard(query.from_user.id)
         await _save_session(
             query.from_user.id, story_id, bucket,
             quiz_taken=False, distractions=label,
         )
         await _mark_heard(query.from_user.id, story_id)
+        xp_lines = await process_audio_completion(
+            query.from_user.id, bucket, first_time=first_time,
+            xp_enabled=is_xp_enabled() and is_flag_enabled(AUDIO_XP_ENABLED_KEY),
+        )
     except Exception as e:
         logger.error(f"Failed to save audio session: {e}")
 
@@ -311,11 +324,15 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
             f"Mind wandered {label} times — noticing it IS the training. "
             "Watch this number fall week over week."
         )
-    await query.edit_message_text(
+    text = (
         f"🎧 *Story complete!*\n\n{focus_note}\n\n"
         "Every vividly imagined scene strengthens your visualization. "
-        "Come back for another story anytime.",
-        parse_mode=ParseMode.MARKDOWN,
+        "Come back for another story anytime."
+    )
+    if xp_lines:
+        text += "\n\n" + "\n".join(xp_lines)
+    await query.edit_message_text(
+        text, parse_mode=ParseMode.MARKDOWN,
         reply_markup=exercise.get_completion_keyboard(),
     )
 
@@ -402,12 +419,20 @@ async def _show_quiz_results(query, context, exercise, state: dict) -> None:
     total = len(results)
 
     streak_text = None
+    xp_lines: list[str] = []
     try:
+        # First-listen check must happen before _mark_heard — replays earn no XP.
+        first_time = story_id not in await _get_heard(query.from_user.id)
         await _save_session(
             query.from_user.id, story_id, bucket,
             quiz_taken=True, score=score, max_score=total,
         )
         await _mark_heard(query.from_user.id, story_id)
+        xp_lines = await process_audio_completion(
+            query.from_user.id, bucket, first_time=first_time,
+            xp_enabled=is_xp_enabled() and is_flag_enabled(AUDIO_XP_ENABLED_KEY),
+            quiz_score=score, quiz_max=total,
+        )
         # Streak counts only for quiz sessions — the active variant of the
         # exercise. Passive listens deliberately don't feed the streak.
         async with get_session() as session:
@@ -438,6 +463,9 @@ async def _show_quiz_results(query, context, exercise, state: dict) -> None:
         lines.append(line)
     if score == total:
         lines.append("\n🎉 *Perfect recall — that's vivid visualization!*")
+    if xp_lines:
+        lines.append("")
+        lines.extend(xp_lines)
 
     for key in ("audio_story_id", "audio_questions", "audio_quiz_items",
                 "audio_quiz_index", "audio_quiz_results"):

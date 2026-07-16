@@ -5,9 +5,11 @@ Working agreement: build one at a time, flag-gate anything user-facing, keep
 each feature removable like audio-viz. Details get worked out at build time —
 what's written here is direction, not final spec.
 
-Suggested build order: #2 → #4 → #1 (#9's notification plumbing is now
-live for #1 to ride on), with #3 as the next big exercise.
-Shipped: #7 (redemption codes), #9 (daily reminder + fresh-mind bonus).
+Suggested build order: #1 next (#9's notification plumbing is live for it
+to ride on), with #3 as the next big exercise. #2 partially superseded by
+the post-listen focus check — revisit whether vividness still adds signal.
+Shipped: #7 (redemption codes), #9 (daily reminder + fresh-mind bonus),
+#4 (visualization XP bar + audio achievements).
 
 ---
 
@@ -56,13 +58,13 @@ word-memo baseline — the moment they *feel* the technique working. Reuses the
 whole existing quiz engine (timers, retry, results); mostly new copy + intro
 flow, not new machinery. This is the product's core promise made tangible.
 
-## 4. Visualization XP bar + audio achievements — near-free
+## 4. Visualization XP bar + audio achievements ✅ SHIPPED
 
-- `SkillDef("visualization")` in `SKILLS`, map `AUDIO_VISUALIZATION` in
-  `EXERCISE_SKILLS` (gamification/xp.py). XP scaled by story length bucket +
-  quiz score; small fixed XP for passive listens (or none — decide at build).
-- Achievements: "First Listen", "Story Collector (10 stories)", "Perfect
-  Recall ×3". Append to `ACHIEVEMENTS`, no migration.
+Built as self-contained `gamification/audio_xp.py` (registers the
+"visualization" `SkillDef` + 3 audio achievements at import time). Anti-farm
+layers: separate bar, first-listen-only XP (replays = 0), small fixed XP for
+passive listens per length bucket, quiz XP scaled accuracy² with 50% floor,
+80 XP/day cap. Kill switch `/admin audioxp on|off` (default ON).
 
 ## 5. Daily community story — Skool engagement
 

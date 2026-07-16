@@ -260,6 +260,32 @@ class ExerciseSessionRepository:
             .where(ExerciseSession.user_id == user_id, _IS_SCORED_TEST)
         )).scalar_one()
 
+    async def get_audio_achievement_stats(self, user_id: int) -> dict:
+        """Lifetime audio counters for audio achievements — removable with
+        the audio XP feature (see gamification/audio_xp.py)."""
+        base = and_(
+            ExerciseSession.user_id == user_id,
+            ExerciseSession.exercise_type == ExerciseType.AUDIO_VISUALIZATION,
+            ExerciseSession.completed.is_(True),
+        )
+        story = ExerciseSession.parameters["story"].as_string()
+        total = (await self.session.execute(
+            select(func.count()).where(base)
+        )).scalar_one()
+        distinct_stories = (await self.session.execute(
+            select(func.count(func.distinct(story))).where(base)
+        )).scalar_one()
+        perfect_quizzes = (await self.session.execute(
+            select(func.count()).where(
+                base, _HAS_SCORE, ExerciseSession.score == ExerciseSession.max_score,
+            )
+        )).scalar_one()
+        return {
+            "total_sessions": total,
+            "distinct_stories": distinct_stories,
+            "perfect_quizzes": perfect_quizzes,
+        }
+
     async def get_personal_best(
         self, user_id: int, difficulty: str, count: int, fmt: str = "pairs",
     ) -> float | None:

@@ -84,6 +84,35 @@ XP totals stay; only future gains change.
 exercise in `EXERCISE_SKILLS` (both in `gamification/xp.py`). Each user gets
 the new bar automatically on first XP gain.
 
+## Audio XP (visualization bar)
+
+Audio sessions feed a separate **👁 Visualization** bar — never the mnemonics
+bar, so audio can't shortcut word-memo levels. Deliberately stricter economy
+(audio is the easier exercise). All knobs in `gamification/audio_xp.py`:
+
+| Constant | Default | Meaning |
+|----------|---------|---------|
+| `LISTEN_XP` | 5 / 12 / 20 | Fixed XP per passive listen (1min / 3min / 5min) |
+| `QUIZ_BASE_XP` | 15 / 30 / 45 | Detail-quiz XP before accuracy scaling |
+| `QUIZ_MIN_ACCURACY` | 0.5 | Below 50% the quiz pays 0 |
+| `QUIZ_ACCURACY_EXPONENT` | 2.0 | Accuracy² scaling, like word memo |
+| `QUIZ_PERFECT_BONUS` | 1.2 | ×1.2 on 100% |
+| `DAILY_XP_CAP` | 80 | Hard cap per UTC day (~2–3 honest sessions) |
+
+Anti-farm rules (not tunable, by design):
+- **Replays pay nothing** — a story already in the user's heard list earns
+  0 XP forever. The library is finite; this kills the main farm vector.
+- Daily cap is a backstop on top, tracked in `preferences["audio_xp_day"]`.
+- No hard-streak or challenge-rating mechanics — audio has no difficulty axis.
+
+Audio achievements (First Listen, Story Collector, Perfect Recall) live in
+the same file and are checked after every audio session, even with XP off.
+
+Kill switch: `/admin audioxp on|off` (default ON — moot while the audio
+exercise itself is off). The global `/admin xp off` also stops audio XP.
+Removing the whole feature: removal notes in the `gamification/audio_xp.py`
+docstring.
+
 ## Audio Visualization exercise
 
 User listens to a narrated story and visualizes it. Passive by design; an

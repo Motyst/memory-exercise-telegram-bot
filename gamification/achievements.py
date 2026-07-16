@@ -130,6 +130,20 @@ ACHIEVEMENTS: list[AchievementDef] = [
 _BY_CODE = {a.code: a for a in ACHIEVEMENTS}
 
 
+def register_achievements(defs: list[AchievementDef]) -> None:
+    """Register extension achievements (e.g. gamification/audio_xp.py) so they
+    show up in /achievements and resolve via get_achievement.
+
+    Extension checks MUST guard on their own context type (isinstance) —
+    evaluate_achievements calls every check with whatever context the
+    finishing exercise built. Idempotent: re-registering a code is a no-op.
+    """
+    for d in defs:
+        if d.code not in _BY_CODE:
+            ACHIEVEMENTS.append(d)
+            _BY_CODE[d.code] = d
+
+
 def get_achievement(code: str) -> AchievementDef | None:
     return _BY_CODE.get(code)
 

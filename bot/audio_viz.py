@@ -27,6 +27,7 @@ from exercises.audio_visualization import (
     scan_library, pick_story, get_cached_file_id, save_file_id,
 )
 from gamification.audio_xp import process_audio_completion
+from .analytics import mark_round_start, round_duration_s
 from .features import (
     is_flag_enabled, is_xp_enabled,
     AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY, AUDIO_XP_ENABLED_KEY,
@@ -71,10 +72,26 @@ async def _mark_heard(telegram_id: int, story_id: str) -> None:
         await user_repo.update_preferences(telegram_id, {HEARD_PREF_KEY: heard})
 
 
+def _listen_duration_s(state: dict, bucket: str) -> int | None:
+    """Seconds from "audio sent" to now, capped near the story's own length.
+
+    A user who taps Done an hour later left the chat and came back; counting
+    that as visualization time would wreck the training-minute stats, so
+    anything past twice the bucket length + 5 min is dropped (see
+    bot/analytics.py). The slack also covers the detail quiz, which runs on
+    the same clock as the listen it follows.
+    """
+    try:
+        minutes = int("".join(c for c in bucket if c.isdigit()))
+    except ValueError:
+        minutes = 5
+    return round_duration_s(state, cap=minutes * 60 * 2 + 300)
+
+
 async def _save_session(
     telegram_id: int, story_id: str, bucket: str,
     quiz_taken: bool, score: int | None = None, max_score: int | None = None,
-    distractions: str | None = None,
+    distractions: str | None = None, duration_s: int | None = None,
 ) -> None:
     async with get_session() as session:
         db_user = await UserRepository(session).get_by_telegram_id(telegram_id)
@@ -93,6 +110,7 @@ async def _save_session(
             difficulty=bucket,
             parameters=parameters,
             score=score, max_score=max_score, completed=True,
+            duration_s=duration_s,
         )
 
 
@@ -251,6 +269,8 @@ async def _start_story(query, context, exercise, bucket: str) -> None:
     state["audio_questions"] = story.questions
     state["audio_msg_id"] = audio_msg.message_id
     state.pop("audio_quiz_items", None)
+    # Listening time starts when the audio lands in the chat.
+    mark_round_start(state)
 
 
 async def _finish_passive(query, context, exercise) -> None:
@@ -307,6 +327,7 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
         await _save_session(
             query.from_user.id, story_id, bucket,
             quiz_taken=False, distractions=label,
+            duration_s=_listen_duration_s(state, bucket),
         )
         await _mark_heard(query.from_user.id, story_id)
         xp_lines = await process_audio_completion(
@@ -426,6 +447,7 @@ async def _show_quiz_results(query, context, exercise, state: dict) -> None:
         await _save_session(
             query.from_user.id, story_id, bucket,
             quiz_taken=True, score=score, max_score=total,
+            duration_s=_listen_duration_s(state, bucket),
         )
         await _mark_heard(query.from_user.id, story_id)
         xp_lines = await process_audio_completion(

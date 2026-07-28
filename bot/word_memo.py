@@ -22,6 +22,7 @@ from exercises.word_memorization import (
     FORMAT_UNITS,
     NEXT_COUNT,
 )
+from .analytics import mark_round_start
 from .quiz_engine import (
     cancel_question_timer, record_answer, start_quiz_after_timer,
     start_retry_mistakes, start_reverse_quiz,
@@ -301,6 +302,8 @@ async def generate_word_memo_test(query, context, difficulty, count, round_mode:
     # on reverse/retry chains (see quiz_engine._show_test_results).
     set_user_state(context, "test_reverse_rounds", 0)
     set_user_state(context, "test_retry_rounds", 0)
+    # Training-time clock starts with the study phase — memorizing IS the work.
+    mark_round_start(state)
     await query.edit_message_text(study_text, parse_mode=ParseMode.MARKDOWN)
 
     set_user_state(context, "test_study_message_id", query.message.message_id)

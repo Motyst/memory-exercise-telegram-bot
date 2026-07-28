@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
     User, ExerciseSession, ExerciseType, SubscriptionTier, UserAchievement,
-    UserSkill, BotSetting, RedemptionCode, utcnow,
+    UserSkill, BotSetting, RedemptionCode, ActivityEvent, utcnow,
 )
 
 # Score percentage expression reused across queries.
@@ -181,12 +181,13 @@ class ExerciseSessionRepository:
         self, user_id: int, exercise_type: ExerciseType,
         difficulty: str, parameters: dict,
         score: Optional[int] = None, max_score: Optional[int] = None,
-        completed: bool = False,
+        completed: bool = False, duration_s: Optional[int] = None,
     ) -> ExerciseSession:
         exercise_session = ExerciseSession(
             user_id=user_id, exercise_type=exercise_type,
             difficulty=difficulty, parameters=parameters,
             score=score, max_score=max_score, completed=completed,
+            duration_s=duration_s,
             completed_at=utcnow() if completed else None,
         )
         self.session.add(exercise_session)
@@ -469,6 +470,7 @@ class ExerciseSessionRepository:
                 ExerciseSession.exercise_type, ExerciseSession.difficulty,
                 ExerciseSession.parameters, ExerciseSession.score,
                 ExerciseSession.max_score, ExerciseSession.started_at,
+                ExerciseSession.duration_s,
             )
             .join(User, ExerciseSession.user_id == User.id)
             .where(or_(_HAS_SCORE, ExerciseSession.completed.is_(True)))
@@ -488,9 +490,46 @@ class ExerciseSessionRepository:
                 "score": r.score,
                 "max_score": r.max_score,
                 "pct": round(r.score / r.max_score * 100, 1) if r.max_score else "",
+                "duration_s": r.duration_s if r.duration_s is not None else "",
                 "date": r.started_at.isoformat() if r.started_at else "",
             })
         return rows
+
+    async def get_training_time(
+        self, since: Optional[datetime] = None, limit: int = 30,
+    ) -> list[dict]:
+        """Engaged training seconds per user, biggest first.
+
+        Sums duration_s over every session that recorded one — training-mode
+        rows and pre-feature rows are NULL and simply don't contribute, so
+        totals are a floor, never an overstatement.
+        """
+        stmt = (
+            select(
+                User.telegram_id, User.first_name, User.username,
+                func.sum(ExerciseSession.duration_s).label("seconds"),
+                func.count(ExerciseSession.id).label("rounds"),
+                func.avg(_PCT).label("avg_pct"),
+            )
+            .join(User, ExerciseSession.user_id == User.id)
+            .where(ExerciseSession.duration_s.isnot(None))
+            .group_by(User.id)
+            .order_by(func.sum(ExerciseSession.duration_s).desc())
+            .limit(limit)
+        )
+        if since is not None:
+            stmt = stmt.where(ExerciseSession.started_at >= since)
+        result = await self.session.execute(stmt)
+        return [
+            {
+                "telegram_id": r.telegram_id,
+                "name": r.first_name or r.username or str(r.telegram_id),
+                "seconds": r.seconds or 0,
+                "rounds": r.rounds,
+                "avg_pct": r.avg_pct,
+            }
+            for r in result
+        ]
 
 
 class UserSkillRepository:
@@ -648,3 +687,48 @@ class AchievementRepository:
         for code in codes:
             self.session.add(UserAchievement(user_id=user_id, code=code))
         await self.session.flush()
+
+
+class ActivityEventRepository:
+    """Raw interaction stream (bot/analytics.py) — remove together with it."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def log(
+        self, telegram_id: int, kind: str, detail: Optional[str] = None,
+    ) -> None:
+        self.session.add(ActivityEvent(
+            telegram_id=telegram_id, kind=kind,
+            detail=detail[:64] if detail else None,
+        ))
+        await self.session.flush()
+
+    async def get_active_days(self, telegram_id: int, since: datetime) -> int:
+        """Distinct UTC days with at least one interaction."""
+        return (await self.session.execute(
+            select(func.count(func.distinct(func.date(ActivityEvent.ts))))
+            .where(
+                ActivityEvent.telegram_id == telegram_id,
+                ActivityEvent.ts >= since,
+            )
+        )).scalar_one()
+
+    async def get_event_counts(self, since: datetime) -> list[tuple[str, int]]:
+        """(kind, count) since a timestamp — coarse funnel view."""
+        result = await self.session.execute(
+            select(ActivityEvent.kind, func.count())
+            .where(ActivityEvent.ts >= since)
+            .group_by(ActivityEvent.kind)
+            .order_by(func.count().desc())
+        )
+        return [(kind, count) for kind, count in result]
+
+    async def purge_older_than(self, days: int) -> int:
+        """Retention helper — nothing calls this automatically. Wire it to a
+        job only after deciding how long raw events should be kept."""
+        cutoff = utcnow() - timedelta(days=days)
+        result = await self.session.execute(
+            ActivityEvent.__table__.delete().where(ActivityEvent.ts < cutoff)
+        )
+        return result.rowcount

@@ -42,6 +42,7 @@ from exercises.word_memorization import (
     get_placement_recommendation,
     should_offer_speed_run,
 )
+from .analytics import mark_round_start, round_duration_s
 from .features import is_xp_enabled
 from .recent_words import save_recent_words
 from .sprint import record_sprint_progress
@@ -319,6 +320,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                         "speed": state.get("speed_mode", False),
                     },
                     score=correct_count, max_score=total, completed=True,
+                    duration_s=round_duration_s(state),
                 )
                 # Personal best — not on retries (merged score mixes baseline
                 # with a redo), not on placement (one-off calibration), not on
@@ -594,6 +596,9 @@ async def start_retry_mistakes(query, context) -> None:
     set_user_state(
         context, "test_retry_rounds", state.get("test_retry_rounds", 0) + 1
     )
+    # New round, new clock: a retry has no study phase, so its duration is
+    # quiz time only — the study minutes already counted on the first round.
+    mark_round_start(state)
 
     n = len(quiz_items)
     await query.edit_message_text(
@@ -684,6 +689,7 @@ async def start_reverse_quiz(query, context) -> None:
         context, "test_round_mode",
         "reverse" if reverse_rounds == 1 else "reverse_extra",
     )
+    mark_round_start(state)
 
     if fmt == "list":
         flip_note = (

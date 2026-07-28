@@ -3,11 +3,13 @@ Bot initialization and setup.
 """
 
 import logging
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -26,6 +28,7 @@ from .commands import (
 )
 from .handlers import callback_handler, text_message_handler
 from .admin import admin_command
+from .analytics import activity_tracker
 from .features import load_feature_flags
 from .menu import sync_command_menu
 from .redeem import redeem_command
@@ -36,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 def setup_handlers(application: Application) -> None:
     """Register all handlers with the application."""
+    # Group -1 runs before every feature handler and never blocks: the tracker
+    # queues its insert and returns. Removing analytics = delete this line.
+    application.add_handler(TypeHandler(Update, activity_tracker), group=-1)
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))

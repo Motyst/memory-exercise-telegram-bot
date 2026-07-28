@@ -48,13 +48,31 @@ async def _run_sqlite_migrations(conn) -> None:
     so new columns/indexes must be added here. Replace with Alembic on the
     Postgres migration.
     """
-    result = await conn.exec_driver_sql("PRAGMA table_info(users)")
-    user_columns = {row[1] for row in result.fetchall()}
-    if "leaderboard_opt_in" not in user_columns:
-        await conn.exec_driver_sql(
-            "ALTER TABLE users ADD COLUMN leaderboard_opt_in BOOLEAN NOT NULL DEFAULT 0"
-        )
-        logger.info("Migration: added users.leaderboard_opt_in")
+    # column name -> the type/default clause ALTER TABLE needs. Adding a
+    # column to a model means adding it here too, or databases created before
+    # the change keep failing every query that selects it.
+    added_columns = {
+        "users": {
+            "leaderboard_opt_in": "BOOLEAN NOT NULL DEFAULT 0",
+            "current_streak": "INTEGER DEFAULT 0",
+            "longest_streak": "INTEGER DEFAULT 0",
+            "last_trained_date": "DATE",
+        },
+        "exercise_sessions": {
+            "duration_s": "INTEGER",
+        },
+    }
+    for table, columns in added_columns.items():
+        result = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in result.fetchall()}
+        if not existing:  # table doesn't exist yet — create_all just made it
+            continue
+        for name, ddl in columns.items():
+            if name not in existing:
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"
+                )
+                logger.info(f"Migration: added {table}.{name}")
 
     await conn.exec_driver_sql(
         "CREATE INDEX IF NOT EXISTS ix_sessions_user_started "

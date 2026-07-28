@@ -18,6 +18,7 @@ AUDIO_VIZ_QUIZ_ENABLED_KEY = "audio_viz_quiz_enabled"
 AUDIO_XP_ENABLED_KEY = "audio_xp_enabled"
 REMINDERS_ENABLED_KEY = "reminders_enabled"
 SPRINT_ENABLED_KEY = "sprint_enabled"
+ANALYTICS_ENABLED_KEY = "analytics_enabled"
 
 # Defaults apply when the key has never been set in the DB.
 # Audio visualization ships dark: admin flips it on when content is ready.
@@ -26,6 +27,8 @@ SPRINT_ENABLED_KEY = "sprint_enabled"
 # Sprint default on — cosmetic results line, kill switch /admin sprint off.
 # Audio XP default on — moot until the audio exercise itself is switched on;
 # kill switch /admin audioxp off (see gamification/audio_xp.py).
+# Analytics default on — gates only the raw interaction log (bot/analytics.py);
+# per-round training time is stored either way.
 _flags: dict[str, bool] = {
     XP_ENABLED_KEY: True,
     AUDIO_VIZ_ENABLED_KEY: False,
@@ -33,6 +36,7 @@ _flags: dict[str, bool] = {
     AUDIO_XP_ENABLED_KEY: True,
     REMINDERS_ENABLED_KEY: True,
     SPRINT_ENABLED_KEY: True,
+    ANALYTICS_ENABLED_KEY: True,
 }
 
 

@@ -3,6 +3,7 @@ Admin commands — usable only by Telegram IDs in ADMIN_TELEGRAM_IDS.
 
 /admin           — bot-wide overview
 /admin users     — per-user progress table
+/admin time [d]  — engaged training minutes per user (bot/analytics.py)
 /admin export    — CSV of all test sessions (for spreadsheets / dashboard)
 /admin grant <telegram_id> <free|basic|premium> [days]
 """
@@ -17,13 +18,14 @@ from telegram.ext import ContextTypes
 
 from database import (
     get_session, UserRepository, ExerciseSessionRepository, SubscriptionTier,
+    ActivityEventRepository,
 )
 from database.models import utcnow
 from .access import admin_only
 from .features import (
     is_xp_enabled, set_xp_enabled, is_flag_enabled, set_flag,
     AUDIO_VIZ_ENABLED_KEY, AUDIO_VIZ_QUIZ_ENABLED_KEY, AUDIO_XP_ENABLED_KEY,
-    REMINDERS_ENABLED_KEY, SPRINT_ENABLED_KEY,
+    REMINDERS_ENABLED_KEY, SPRINT_ENABLED_KEY, ANALYTICS_ENABLED_KEY,
 )
 from .menu import sync_command_menu
 from .redeem import admin_codes
@@ -61,6 +63,11 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     elif sub == "sprint":
         await _admin_flag(update, args[1:], SPRINT_ENABLED_KEY,
                           "🏁 Daily sprint challenge", "/admin sprint on|off")
+    elif sub == "analytics":
+        await _admin_flag(update, args[1:], ANALYTICS_ENABLED_KEY,
+                          "📈 Usage analytics", "/admin analytics on|off")
+    elif sub == "time":
+        await _admin_time(update, args[1:])
     else:
         await _admin_overview(update)
 
@@ -75,6 +82,7 @@ async def _admin_overview(update: Update) -> None:
     audio_xp_status = "ON ✅" if is_flag_enabled(AUDIO_XP_ENABLED_KEY) else "OFF ⛔"
     reminders_status = "ON ✅" if is_flag_enabled(REMINDERS_ENABLED_KEY) else "OFF ⛔"
     sprint_status = "ON ✅" if is_flag_enabled(SPRINT_ENABLED_KEY) else "OFF ⛔"
+    analytics_status = "ON ✅" if is_flag_enabled(ANALYTICS_ENABLED_KEY) else "OFF ⛔"
     text = (
         "🛠 Admin — Bot Overview\n\n"
         f"👥 Users: {stats['total_users']} total, +{stats['new_users_week']} this week\n"
@@ -84,9 +92,11 @@ async def _admin_overview(update: Update) -> None:
         f"⭐ XP system: {xp_status}\n"
         f"🎧 Audio visualization: {audio_status} (quiz: {audio_quiz_status}, XP: {audio_xp_status})\n"
         f"🔔 Daily reminders: {reminders_status}\n"
-        f"🏁 Daily sprint: {sprint_status}\n\n"
+        f"🏁 Daily sprint: {sprint_status}\n"
+        f"📈 Usage analytics: {analytics_status}\n\n"
         "Commands:\n"
         "/admin users — per-user progress\n"
+        "/admin time [days] — training minutes per user\n"
         "/admin export — CSV of all sessions\n"
         "/admin grant <id> <tier> [days] — set subscription\n"
         "/admin codes <n> <tier> <days|lifetime> — generate access codes\n"
@@ -96,7 +106,8 @@ async def _admin_overview(update: Update) -> None:
         "/admin audioquiz on|off — offer the detail quiz after audio\n"
         "/admin audioxp on|off — audio XP (visualization bar)\n"
         "/admin reminders on|off — toggle daily reminders\n"
-        "/admin sprint on|off — toggle the daily sprint challenge"
+        "/admin sprint on|off — toggle the daily sprint challenge\n"
+        "/admin analytics on|off — toggle the raw interaction log"
     )
     await update.message.reply_text(text)
 
@@ -155,6 +166,68 @@ async def _admin_users(update: Update) -> None:
         lines.append(f"• {u['name']} ({u['telegram_id']}) — {scores}{streak} — {last}")
 
     # Telegram message limit is 4096 chars
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n…"
+    await update.message.reply_text(text)
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Seconds under an hour stay readable as m/s — rounding a 45s round and a
+    90s round both to "1 min" hides the differences worth looking at."""
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        m, s = divmod(seconds, 60)
+        return f"{m}m {s}s" if s else f"{m}m"
+    h, rem = divmod(seconds, 3600)
+    return f"{h}h {rem // 60}m"
+
+
+async def _admin_time(update: Update, args: list[str]) -> None:
+    """Engaged training minutes per user. `/admin time [days]` (default 7)."""
+    try:
+        days = int(args[0]) if args else 7
+    except ValueError:
+        await update.message.reply_text("Usage: /admin time [days]")
+        return
+    days = max(1, min(days, 365))
+    since = utcnow() - timedelta(days=days)
+
+    async with get_session() as session:
+        rows = await ExerciseSessionRepository(session).get_training_time(
+            since=since, limit=30,
+        )
+        events = await ActivityEventRepository(session).get_event_counts(since)
+
+    if not rows:
+        await update.message.reply_text(
+            f"No training time recorded in the last {days} days.\n"
+            "(Rounds finished before this feature shipped have no duration.)"
+        )
+        return
+
+    total = sum(r["seconds"] for r in rows)
+    lines = [
+        f"⏱ Training time — last {days} days\n",
+        f"Total: {_fmt_duration(total)} across {len(rows)} "
+        f"user{'s' if len(rows) != 1 else ''}\n",
+    ]
+    for r in rows:
+        avg = f", avg {r['avg_pct']:.0f}%" if r["avg_pct"] is not None else ""
+        rounds = f"{r['rounds']} round{'s' if r['rounds'] != 1 else ''}"
+        lines.append(
+            f"• {r['name']} — {_fmt_duration(r['seconds'])}, {rounds}{avg}"
+        )
+    if events:
+        summary = ", ".join(f"{kind} {count}" for kind, count in events)
+        lines.append(f"\nInteractions: {summary}")
+    lines.append(
+        "\nTraining time only — study + quiz + listening. "
+        "Menu browsing is not counted."
+    )
+
     text = "\n".join(lines)
     if len(text) > 4000:
         text = text[:4000] + "\n…"

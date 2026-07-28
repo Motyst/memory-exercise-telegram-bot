@@ -9,7 +9,7 @@ Suggested build order: #1 next (#9's notification plumbing is live for it
 to ride on), with #3 as the next big exercise. #2 partially superseded by
 the post-listen focus check — revisit whether vividness still adds signal.
 Shipped: #7 (redemption codes), #9 (daily reminder + fresh-mind bonus),
-#4 (visualization XP bar + audio achievements).
+#4 (visualization XP bar + audio achievements), #10 L1 (usage logging).
 
 ---
 
@@ -131,6 +131,45 @@ plumbing that delayed recall (#1) needs — build this first, #1 rides on it.
   time is it for you right now?" (hour buttons) → derive + store offset in
   prefs. Good enough until the Postgres era.
 - Achievement later: "Early bird — 7 on-time responses in a row."
+
+## 10. Usage analytics → recommendations → shareable progress
+
+Layered feature. **L1 (logging) is SHIPPED**: `ExerciseSession.duration_s`
+(engaged training seconds) + the `activity_events` interaction stream, read
+via `/admin time`, kill switch `/admin analytics on|off`. See `bot/analytics.py`
+and the ADMIN_GUIDE section. Decided up front: users only ever see *training*
+time (study + quiz + listening), never a reconstructed "time in bot" — the
+latter is admin-side pattern analysis only.
+
+Remaining layers, in build order:
+
+**L2 — cohort analysis (admin).** Streamlit dashboard per `docs/DASHBOARD.md`,
+reading the same SQLite file read-only. Questions to answer: minutes committed
+vs accuracy slope, which counts/difficulties people abandon, whether audio
+listeners progress differently from word-memo-only users. No bot code.
+Do this before L3 — the recommendation rules should be written against real
+distributions, not guesses.
+
+**L3 — daily personal recommendation.** One extra line inside the existing
+opt-in reminder ping (`bot/reminders.py` already has the hourly sweep, the
+timezone offset and the quiet-hours logic — no new notification channel, no
+second opt-in). Rules engine, not an LLM: ~12 if-clauses over minutes-last-7d,
+exercise mix, accuracy trend, difficulty ceiling, streak risk. Examples:
+three sessions all 10 pairs all ≥95% → push 15; audio-only for 5 days → nudge
+word memo; median session 90s → suggest one longer block. Debuggable and free.
+
+**L4 — shareable progress cards (PNG).** Both variants wanted:
+- *Personal*: "Share my progress" button → level, streak, minutes trained,
+  accuracy curve. The member posts it in Skool; the bot markets itself.
+- *Community*: `/admin card` → aggregate stats (members, total hours trained,
+  average improvement) for announcement posts.
+Needs Pillow (currently commented out in `requirements.txt`). Mostly design
+work; render server-side, send as a photo.
+
+**Guardrail carried through all layers**: time is context, never rank. Ten
+focused minutes beat sixty idle ones, so the leaderboard stays on accuracy and
+no screen ever implies "more minutes = better". Also: one line in `/help` or
+the welcome text disclosing that usage is logged — cheap now, painful later.
 
 ## Parked ideas
 

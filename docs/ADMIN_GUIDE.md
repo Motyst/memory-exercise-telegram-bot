@@ -14,11 +14,13 @@ Non-admins get silence — the commands don't exist for them.
 |---|---|
 | `/admin` | Overview: users, actives, tests, avg score, XP system status |
 | `/admin users` | Per-user progress: tests, avg %, best %, streak, last active (top 30 by activity) |
+| `/admin time [days]` | Engaged training minutes per user (default last 7 days) |
 | `/admin export` | Sends you a CSV of every scored test — opens in Excel/Google Sheets |
 | `/admin grant <telegram_id> <free\|basic\|premium> [days]` | Set a user's subscription tier; omit days = no expiry |
 | `/admin xp on` / `/admin xp off` | Turn the whole XP/level system on/off (see below) |
 | `/admin audio on` / `/admin audio off` | Show/hide the Audio Visualization exercise for everyone (default: off) |
 | `/admin audioquiz on` / `/admin audioquiz off` | Offer the optional detail quiz after audio stories (default: off) |
+| `/admin analytics on` / `/admin analytics off` | Raw interaction logging (default: on) — training minutes are recorded either way |
 
 Get someone's Telegram ID: it's in `/admin users` next to their name, or they
 can message @userinfobot.
@@ -184,11 +186,71 @@ No DB change needed. Never reuse/rename a `code` — unlocks are stored by code
 Tiered achievements (I/II/III by pair count, 10/30/50+): Flawless, Speedster,
 Advanced Ace. 18 total. Achievements are never checked on retry rounds.
 
+## Usage analytics (time on task)
+
+Two numbers, and they are not the same thing:
+
+**Engaged training time** — `duration_s` on every session row: study phase +
+quiz for word memo, listen (+ quiz) for audio. Measured on a monotonic clock,
+so it survives clock changes and can't be inflated by leaving the chat open.
+This is the only number to quote to a member ("47 min trained this week").
+
+- `/admin time` — last 7 days per user; `/admin time 30` for a month.
+- Also a `duration_s` column in `/admin export`.
+- **Blind spots, by design:** training-mode rounds (no completion event to
+  close them), rounds interrupted by a bot restart, and anything longer than
+  its cap (1h for word memo, ~2× story length + 5 min for audio) record NULL.
+  Totals are always a floor, never inflated.
+
+**Raw interaction stream** — one `activity_events` row per tap or message
+(`kind` + callback prefix; message text is never stored). Telegram gives no
+app-open/close signal, so "time in the bot" can only be *reconstructed* from
+this by grouping events and starting a new visit after a 5-minute gap. Fuzzy
+by nature — use it for patterns (which screens people bounce off, how often
+they come back), never as a member's training time. `/admin analytics off`
+stops the logging; nothing else changes.
+
+Analysing it: the table is plain SQLite, so `docs/DASHBOARD.md`'s Streamlit
+setup reads it read-only alongside the session table. Retention is unlimited
+for now — `ActivityEventRepository.purge_older_than(days)` exists but nothing
+calls it; wire it to a job once you decide how far back you care.
+
 ## Users & data
 
 - User progress: `/admin users`, deeper analysis via `/admin export` CSV
+- Time on task: `/admin time` (see above)
 - Web dashboard with shareable PNG charts: build guide in `docs/DASHBOARD.md`
 - Leaderboard is opt-in — users join via button under `/leaderboard`
+
+## Backups
+
+Never back up the database with `cp`. The bot runs SQLite in WAL mode, so the
+newest writes sit in a separate `-wal` file — a plain copy taken while the bot
+is running can be inconsistent or missing rows. `scripts/backup_db.sh` uses
+SQLite's online backup API instead, which is safe on a live database, then
+integrity-checks the copy and prunes anything older than 14 days.
+
+```bash
+bash /root/mental_training_bot/scripts/backup_db.sh
+```
+
+**Run it before every deploy that changes the schema** — migrations write to
+production data and there is no undo. Daily otherwise; install once with:
+
+```bash
+echo '0 3 * * * root bash /root/mental_training_bot/scripts/backup_db.sh >> /var/log/mtb_backup.log 2>&1' > /etc/cron.d/mtb-backup
+```
+
+Backups land in `/root/backups/mtb_<date>_<time>.db`. Each one is a complete,
+standalone database — restoring is just stopping the bot, copying the file
+over `mental_training.db`, and starting again.
+
+To analyse data locally (e.g. the dashboard), take a fresh backup and pull
+*that* file down — never `scp` the live database.
+
+```bash
+scp root@<VPS_IP>:/root/backups/mtb_<date>_<time>.db ./snapshot.db
+```
 
 ## VPS operations
 

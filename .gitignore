@@ -63,3 +63,5 @@ data/audio/file_ids.json
 
 # Story render queue (transient sources; rendered mp3s live in data/audio/)
 scripts/queue/
+*.db-wal
+*.db-shm

@@ -99,6 +99,13 @@ class ExerciseSession(Base):
     max_score = Column(Integer, nullable=True)
     completed = Column(Boolean, default=False)
 
+    # Engaged training seconds for this round (study + quiz), measured from a
+    # monotonic clock — NOT wall-clock presence in the chat. Real column so
+    # "minutes trained" aggregates in SQL. NULL when unknown: training-mode
+    # rows (no completion event to close them) and rounds whose start stamp
+    # was lost to a bot restart. See bot/analytics.py.
+    duration_s = Column(Integer, nullable=True)
+
     # Timestamps
     started_at = Column(DateTime, default=utcnow)
     completed_at = Column(DateTime, nullable=True)
@@ -163,6 +170,36 @@ class RedemptionCode(Base):
 
     def __repr__(self):
         return f"<RedemptionCode(code={self.code}, tier={self.tier}, redeemed_by={self.redeemed_by})>"
+
+
+class ActivityEvent(Base):
+    """One row per user interaction — the raw stream behind usage analytics.
+
+    Telegram exposes no "app open/close" signal, only discrete events, so
+    time-in-bot can only be reconstructed by sessionizing this stream with an
+    idle-gap rule (see docs/ADMIN_GUIDE.md). Engaged *training* time is the
+    trustworthy number and lives in ExerciseSession.duration_s instead.
+
+    Stores telegram_id (not users.id) so logging costs exactly one INSERT with
+    no user lookup on the hot path — same trade-off as RedemptionCode.
+    Never stores message text: answers are content, and none of the analytics
+    need them.
+
+    Written by bot/analytics.py, gated by the analytics_enabled flag.
+    """
+    __tablename__ = "activity_events"
+    __table_args__ = (
+        Index("ix_activity_user_ts", "telegram_id", "ts"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    ts = Column(DateTime, default=utcnow, nullable=False)
+    kind = Column(String(32), nullable=False)   # command | callback | message
+    detail = Column(String(64), nullable=True)  # command name or callback prefix
+
+    def __repr__(self):
+        return f"<ActivityEvent(telegram_id={self.telegram_id}, kind={self.kind}, detail={self.detail})>"
 
 
 class UserAchievement(Base):

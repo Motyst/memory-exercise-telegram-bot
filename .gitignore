@@ -19,7 +19,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-CLAUDE.md
+# CLAUDE.md is tracked on purpose — it's the project context every coding
+# session reads, and it's useless if it only exists on one laptop.
+# Keep it free of secrets: no IPs, tokens, or Telegram IDs (this repo is public).
 LEARNING.md
 LESSONS_LOG.md
 

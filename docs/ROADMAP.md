@@ -9,7 +9,8 @@ Suggested build order: #1 next (#9's notification plumbing is live for it
 to ride on), with #3 as the next big exercise. #2 partially superseded by
 the post-listen focus check — revisit whether vividness still adds signal.
 Shipped: #7 (redemption codes), #9 (daily reminder + fresh-mind bonus),
-#4 (visualization XP bar + audio achievements), #10 L1 (usage logging).
+#4 (visualization XP bar + audio achievements), #10 L1+L2 (usage logging +
+analytics dashboard).
 
 ---
 
@@ -141,19 +142,19 @@ and the ADMIN_GUIDE section. Decided up front: users only ever see *training*
 time (study + quiz + listening), never a reconstructed "time in bot" — the
 latter is admin-side pattern analysis only.
 
+**L2 (cohort dashboard) is SHIPPED**: `dashboard.py` — minutes per
+day/user/exercise, commitment-vs-improvement scatter, attempts by list size,
+engagement sessionized from the event stream, per-member drilldown. Runs
+locally against a snapshot; no bot code, nothing exposed on the VPS.
+
 Remaining layers, in build order:
 
-**L2 — cohort analysis (admin).** Streamlit dashboard per `docs/DASHBOARD.md`,
-reading the same SQLite file read-only. Questions to answer: minutes committed
-vs accuracy slope, which counts/difficulties people abandon, whether audio
-listeners progress differently from word-memo-only users. No bot code.
-Do this before L3 — the recommendation rules should be written against real
-distributions, not guesses.
-
-**L3 — daily personal recommendation.** One extra line inside the existing
-opt-in reminder ping (`bot/reminders.py` already has the hourly sweep, the
-timezone offset and the quiet-hours logic — no new notification channel, no
-second opt-in). Rules engine, not an LLM: ~12 if-clauses over minutes-last-7d,
+**L3 — daily personal recommendation.** Build against real distributions from
+the L2 dashboard, not guesses — the thresholds decide what every member gets
+told. One extra line inside the existing opt-in reminder ping
+(`bot/reminders.py` already has the hourly sweep, the timezone offset and the
+quiet-hours logic — no new notification channel, no second opt-in). Rules
+engine, not an LLM: ~12 if-clauses over minutes-last-7d,
 exercise mix, accuracy trend, difficulty ceiling, streak risk. Examples:
 three sessions all 10 pairs all ≥95% → push 15; audio-only for 5 days → nudge
 word memo; median session 90s → suggest one longer block. Debuggable and free.

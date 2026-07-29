@@ -245,12 +245,17 @@ Backups land in `/root/backups/mtb_<date>_<time>.db`. Each one is a complete,
 standalone database — restoring is just stopping the bot, copying the file
 over `mental_training.db`, and starting again.
 
-To analyse data locally (e.g. the dashboard), take a fresh backup and pull
-*that* file down — never `scp` the live database.
+Every run also repoints `/root/backups/latest.db` at the newest snapshot
+(only after its integrity check passes), so pulling one down is a fixed
+command with no filename to look up. To analyse data locally — e.g. the
+dashboard — copy *that*, never the live database:
 
 ```bash
-scp root@<VPS_IP>:/root/backups/mtb_<date>_<time>.db ./snapshot.db
+scp root@<VPS_IP>:/root/backups/latest.db snapshot.db
 ```
+
+Run it from the project folder: `dashboard.py` looks for `snapshot.db`
+beside it.
 
 ## VPS operations
 

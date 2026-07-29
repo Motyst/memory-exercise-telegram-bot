@@ -1,5 +1,21 @@
 # Web Dashboard — Build Guide
 
+> **The dashboard now exists: `dashboard.py` in the project root.** Run it with
+> the quick start below; the rest of this file explains how it was built and how
+> to deploy it on the VPS if you ever want it hosted.
+>
+> ```bash
+> pip install -r requirements-dashboard.txt
+> streamlit run dashboard.py
+> ```
+>
+> It reads a **snapshot** (default `snapshot.db` in the project root, override
+> with the sidebar or `MTB_DB`), never the live database. Take one with
+> `scripts/backup_db.sh` on the VPS and `scp` it down — see ADMIN_GUIDE
+> "Backups". Beyond the score charts described below it also covers minutes
+> trained per day/user/exercise, commitment-vs-progress, where members stall by
+> list size, and engagement reconstructed from the interaction stream.
+
 Goal: a private web dashboard showing all users' progress with shareable graphics
 (PNG charts you can post to your Skool community).
 

@@ -371,9 +371,14 @@ async def handle_leaderboard_callback(query, context, data: str) -> None:
         text += "\n\n🛡 Admins aren't listed on the leaderboard."
     else:
         text += "\n\n✅ You joined the leaderboard!" if opt_in else "\n\n👋 You left the leaderboard."
+    # Main Menu row: this can be reached from a test-results message (the join
+    # nudge), which the edit above replaces — without it the user is stranded.
+    kb = InlineKeyboardMarkup([
+        *_leaderboard_rows(opt_in, user.id),
+        [InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")],
+    ])
     await query.edit_message_text(
-        text, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=_leaderboard_keyboard(opt_in, user.id),
+        text, parse_mode=ParseMode.MARKDOWN, reply_markup=kb,
     )
 
 

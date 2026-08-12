@@ -67,11 +67,6 @@ def is_fuzzy_match(answer: str, expected: str, max_distance: int = FUZZY_MAX_DIS
 # Progressive difficulty helpers
 # ============================================================================
 
-NEXT_DIFFICULTY = {
-    Difficulty.BEGINNER: Difficulty.INTERMEDIATE,
-    Difficulty.INTERMEDIATE: Difficulty.ADVANCED,
-}
-
 NEXT_COUNT = {5: 10, 10: 15, 15: 20, 20: 30, 30: 50, 50: 75, 75: 100}
 
 DIFFICULTY_NAMES = {
@@ -98,54 +93,29 @@ def get_placement_recommendation(score_pct: float) -> tuple[Difficulty, int]:
     return Difficulty.ADVANCED, 10
 
 
-# Progression ladder: at ≥90% suggest ONE next step in order more words →
-# speed mode → harder words, each backed by a one-tap button where possible.
-# Flip to False to restore the old two-option suggestion and hide the
-# ⚡ Speed run button everywhere (bot/quiz_engine.py + bot/word_memo.py
-# speed_run handler go dead but harmless).
+# Progression ladder: at ≥90% the results keyboard offers ONE next step —
+# more words (⬆️ Level up button) before speed (⚡ Speed run button). The old
+# text suggestion line was removed deliberately; the buttons carry it now.
+# Flip to False to hide the ⚡ Speed run button everywhere (bot/quiz_engine.py
+# + bot/word_memo.py speed_run handler go dead but harmless).
 PROGRESSION_LADDER = True
 
 
-def get_progression_suggestion(
-    difficulty: Difficulty, count: int, score_pct: float, fmt: str = "pairs",
-    speed_mode: bool = False,
-) -> str | None:
-    """
-    Return a suggestion string if the user should level up, or None.
-    Triggers at ≥ 90% score.
-    """
-    if score_pct < 90:
-        return None
+# Answers the engine records for a non-answer, mapped to the results wording —
+# "(you said: (skipped))" reads like the user typed it.
+_NON_ANSWERS = {"(skipped)": "_skipped_", "(timed out)": "_timed out_"}
 
-    next_diff = NEXT_DIFFICULTY.get(difficulty)
-    next_cnt = NEXT_COUNT.get(count)
-    unit = FORMAT_UNITS.get(fmt, "pairs")
 
-    if not PROGRESSION_LADDER:
-        suggestions = []
-        if next_cnt and next_cnt <= 100:
-            suggestions.append(f"try *{next_cnt} {unit}*")
-        if next_diff:
-            suggestions.append(f"step up to *{DIFFICULTY_NAMES[next_diff]}*")
-        if not suggestions:
-            return None
-        return "💡 You're doing great! Maybe " + " or ".join(suggestions) + "?"
-
-    # One rung at a time: count first (existing Level Up button), then speed
-    # (Speed run button), then word difficulty (text only — new word pool).
-    if next_cnt:
-        step = f"try *{next_cnt} {unit}* — ⬆️ Level up button below"
-    elif not speed_mode:
-        step = "try *⚡ Speed mode* — same test, half the study time"
-    elif next_diff:
-        step = f"step up to *{DIFFICULTY_NAMES[next_diff]}*"
-    else:
-        return None  # 100 words, speed mode, advanced — top of the ladder
-
-    return (
-        f"💡 You're doing great! Next challenge: {step}.\n"
-        f"_Push harder anytime: more {unit}, faster pace, or harder words._"
-    )
+def _answer_note(result: dict | None) -> str:
+    """Trailing note for one results line: what the user actually answered."""
+    if not result or result["correct"]:
+        return ""
+    answer = (result.get("answer") or "").strip()
+    if answer in _NON_ANSWERS:
+        return f"  ({_NON_ANSWERS[answer]})"
+    if not answer:
+        return "  (_no answer_)"
+    return f"  (you said: _{answer}_)"
 
 
 def should_offer_speed_run(count: int, score_pct: float, speed_mode: bool) -> bool:
@@ -325,6 +295,7 @@ class WordMemorizationExercise(BaseExercise):
         self, has_mistakes: bool = False,
         next_count: int | None = None, fmt: str = "pairs",
         offer_speed_run: bool = False,
+        offer_leaderboard_join: bool = False,
     ) -> InlineKeyboardMarkup:
         """Results keyboard with Retry Mistakes, Reverse Quiz and Level Up options."""
         rows = []
@@ -357,6 +328,12 @@ class WordMemorizationExercise(BaseExercise):
         rows.append([
             InlineKeyboardButton("🔀 Reverse Quiz", callback_data=f"{self.exercise_type}:reverse_quiz"),
         ])
+
+        # Paired with the "you'd rank #N" nudge in the results text
+        if offer_leaderboard_join:
+            rows.append([
+                InlineKeyboardButton("✋ Join leaderboard", callback_data="lb:join"),
+            ])
 
         rows.append([
             InlineKeyboardButton("⚙️ Change Settings", callback_data=f"{self.exercise_type}:settings"),
@@ -460,8 +437,9 @@ class WordMemorizationExercise(BaseExercise):
         speed_label = " ⚡ *SPEED MODE*" if speed_mode else ""
         base += (
             f"\n\n⏱ *Test Mode*{speed_label} — You have *{countdown_seconds} seconds* to memorize.\n"
-            "The list will disappear, then you'll walk through it in order: "
-            "each word is shown and you recall the word that came *right after* it.\n"
+            "The list will disappear, then you'll rebuild it in order: first "
+            "recall the opening word, then each word is shown and you recall "
+            "the word that came *right after* it.\n"
             f"Each question has a *{QUESTION_TIME_LIMIT}s* time limit."
         )
         return base
@@ -473,6 +451,12 @@ class WordMemorizationExercise(BaseExercise):
             question = f"Which word came *right after*:  *{shown_word}*  ?"
         elif direction == "prev":
             question = f"Which word came *right before*:  *{shown_word}*  ?"
+        elif direction == "first":
+            # Opening question of a forward list walk — nothing shown, so the
+            # first word is tested too instead of being handed over.
+            question = "What was the *1st* word in the list?"
+        elif direction == "last":
+            question = "What was the *last* word in the list?"
         else:
             question = f"What was paired with:  *{shown_word}*  ?"
         return (
@@ -484,14 +468,14 @@ class WordMemorizationExercise(BaseExercise):
     def format_test_results(
         self, pairs, results, difficulty,
         personal_best_text: str | None = None,
-        progression_text: str | None = None,
         streak_text: str | None = None,
         compact: bool = False,
         fmt: str = "pairs",
     ) -> str:
         """compact=True (user setting): only score header, pairs and typo legend.
-        fmt="list": *pairs* holds the ordered word list; each result covers one
-        adjacent link (pair_index = position of the earlier word)."""
+        fmt="list": *pairs* holds the ordered word list and pair_index is the
+        position of the word the question asked for (0 = the opening word), so
+        every position gets its own line."""
         correct_count = sum(1 for r in results if r["correct"])
         total = len(results)
 
@@ -518,18 +502,16 @@ class WordMemorizationExercise(BaseExercise):
 
         result_by_pair = {r["pair_index"]: r for r in results}
         if fmt == "list":
-            # One line per adjacent link: word_i → word_i+1
-            for i in range(len(pairs) - 1):
+            # One line per position: the word that had to be recalled there.
+            for i, word in enumerate(pairs):
                 r = result_by_pair.get(i)
                 if r and r["correct"]:
                     mark = "✅~" if r.get("fuzzy") else "✅"
                 else:
                     mark = "❌"
-                line = f"{i + 1}. *{pairs[i]}* → {pairs[i + 1]}  {mark}"
-                if r and not r["correct"]:
-                    line += f"  (you said: _{r['answer']}_)"
+                line = f"{i + 1}. *{word}*  {mark}{_answer_note(r)}"
                 lines.append(line)
-                if (i + 1) % 10 == 0 and (i + 1) < len(pairs) - 1:
+                if (i + 1) % 10 == 0 and (i + 1) < len(pairs):
                     lines.append("———————————")
         else:
             for i, (word1, word2) in enumerate(pairs):
@@ -538,27 +520,10 @@ class WordMemorizationExercise(BaseExercise):
                     mark = "✅~" if r.get("fuzzy") else "✅"
                 else:
                     mark = "❌"
-                line = f"{i + 1}. *{word1}* — {word2}  {mark}"
-                if r and not r["correct"]:
-                    line += f"  (you said: _{r['answer']}_)"
+                line = f"{i + 1}. *{word1}* — {word2}  {mark}{_answer_note(r)}"
                 lines.append(line)
                 if (i + 1) % 10 == 0 and (i + 1) < len(pairs):
                     lines.append("———————————")
-
-        if not compact:
-            # Summary
-            if correct_count == total:
-                lines.append("\n🎉 *Perfect score! Amazing memory!*")
-            elif correct_count >= total * 0.8:
-                lines.append("\n👏 *Great job! Almost perfect!*")
-            elif correct_count >= total * 0.5:
-                lines.append("\n💪 *Good effort! Keep practicing!*")
-            else:
-                lines.append("\n🔄 *Keep training — you'll improve!*")
-
-            # Progressive difficulty suggestion (#3)
-            if progression_text:
-                lines.append(progression_text)
 
         # Legend for fuzzy
         if any(r.get("fuzzy") for r in results if r["correct"]):

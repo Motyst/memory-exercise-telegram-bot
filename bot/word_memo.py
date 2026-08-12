@@ -247,16 +247,21 @@ def _build_quiz_items(pairs):
 def _build_list_quiz_items(words):
     """Build sequential chain quiz items over an ordered word list.
 
-    Question i shows words[i] and expects words[i+1], walked in list order so
-    every word is tested exactly once as an answer. Each prompt doubles as the
-    reveal of the previous answer (skip or wrong — the next question shows it).
-    pair_index stores the link index so retry/results machinery works unchanged.
+    N words → N questions. Question 0 shows nothing and asks for the opening
+    word (direction "first") so position 1 is tested too instead of being
+    handed over; question i (i ≥ 1) shows words[i-1] and expects words[i].
+    Each prompt doubles as the reveal of the previous answer (skip or wrong —
+    the next question shows it). pair_index is the position of the word being
+    recalled, so retry/reverse/results machinery keys off list positions.
     """
-    return [
+    items = [{"pair_index": 0, "direction": "first",
+              "shown_word": None, "expected": words[0]}]
+    items += [
         {"pair_index": i, "direction": "next",
-         "shown_word": words[i], "expected": words[i + 1]}
-        for i in range(len(words) - 1)
+         "shown_word": words[i - 1], "expected": words[i]}
+        for i in range(1, len(words))
     ]
+    return items
 
 
 async def generate_word_memo_test(query, context, difficulty, count, round_mode: str = "test") -> None:

@@ -38,10 +38,11 @@ from exercises.word_memorization import (
     DIFF_EMOJI,
     NEXT_COUNT,
     is_fuzzy_match,
-    get_progression_suggestion,
     get_placement_recommendation,
     should_offer_speed_run,
 )
+from config import get_settings
+from .access import is_admin
 from .analytics import mark_round_start, round_duration_s
 from .features import is_xp_enabled
 from .recent_words import save_recent_words
@@ -245,6 +246,60 @@ async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_mes
 
 
 # ============================================================================
+# Leaderboard standing (full results only)
+# ============================================================================
+
+# Minimum scored tests before a user can be ranked — must match the
+# leaderboard query's min_tests (bot/commands.py::_get_leaderboard).
+RANK_MIN_TESTS = 3
+
+
+async def _build_rank_line(session_repo, user_repo, chat_id, preferences) -> tuple[str | None, bool]:
+    """Leaderboard standing line for the results message.
+
+    Returns (line, offer_join): *offer_join* asks the caller to add the
+    ✋ Join leaderboard button. Admins and users with no scored tests get
+    (None, False) — admins never compete. Movement (▲/▼) compares against
+    preferences["last_rank"], which is refreshed here.
+    """
+    if is_admin(chat_id):
+        return None, False
+    info = await session_repo.get_rank_for_user(
+        chat_id, min_tests=RANK_MIN_TESTS,
+        exclude_telegram_ids=get_settings().admin_ids,
+    )
+    if not info:
+        return None, False
+
+    if info["rank"] is None:
+        missing = RANK_MIN_TESTS - info["tests"]
+        return (
+            f"🏆 _{missing} more test{'s' if missing != 1 else ''} "
+            "and you'll get a leaderboard rank._",
+            not info["opted_in"],
+        )
+
+    rank, total = info["rank"], info["total"]
+    prev_rank = (preferences or {}).get("last_rank")
+    await user_repo.update_preferences(chat_id, {"last_rank": rank})
+
+    if info["opted_in"]:
+        line = (
+            f"🏆 *Leaderboard: #{rank} of {total}* — {info['avg_pct']:.0f}% avg"
+        )
+        if isinstance(prev_rank, int) and prev_rank != rank:
+            moved = abs(prev_rank - rank)
+            arrow = "▲ up" if rank < prev_rank else "▼ down"
+            line += f"\n_{arrow} {moved} place{'s' if moved != 1 else ''}_"
+        return line, False
+
+    return (
+        f"🏆 You'd rank *#{rank} of {total}* — join the leaderboard to compete.",
+        True,
+    )
+
+
+# ============================================================================
 # Results pipeline
 # ============================================================================
 
@@ -266,8 +321,9 @@ async def _show_test_results(context, chat_id, state) -> None:
     merged_results = list(merged_by_pair.values())
 
     correct_count = sum(1 for r in merged_results if r["correct"])
-    # List format: N words yield N-1 adjacent-link questions
-    total = max(len(pairs) - 1, 1) if fmt == "list" else len(pairs)
+    # Both formats: one question per item (list = one per position, opening
+    # word included). Older list sessions were scored out of N-1.
+    total = len(pairs)
     score_pct = (correct_count / total * 100) if total > 0 else 0
 
     # "test" (fresh) | "reverse" | "reverse_extra" (2nd+ reverse on the same
@@ -296,6 +352,8 @@ async def _show_test_results(context, chat_id, state) -> None:
     new_achievements = []
     xp_lines = []
     sprint_line = None
+    rank_line = None
+    offer_join = False
     compact = False
     try:
         async with get_session() as session:
@@ -360,6 +418,16 @@ async def _show_test_results(context, chat_id, state) -> None:
                         await achievement_repo.unlock(
                             db_user.id, [a.code for a in new_achievements]
                         )
+                # Leaderboard standing — full results only (compact stays a
+                # bare score card), and only on rounds that actually moved the
+                # average (retry/placement/extra-reverse are excluded from it).
+                if (
+                    not compact and not is_retry and not is_placement
+                    and not is_extra_reverse
+                ):
+                    rank_line, offer_join = await _build_rank_line(
+                        session_repo, user_repo, chat_id, db_user.preferences,
+                    )
                 # Placement: store the recommendation so it survives restarts
                 # and can pre-star the difficulty keyboard later.
                 if is_placement:
@@ -461,24 +529,19 @@ async def _show_test_results(context, chat_id, state) -> None:
     except Exception as e:
         logger.error(f"Failed to save/check test results: {e}")
 
-    # Progressive difficulty suggestion — not on placement, which makes
-    # its own recommendation below.
     count = state.get("count", len(pairs))
     speed_mode = state.get("speed_mode", False)
-    progression_text = None
-    if not is_placement:
-        progression_text = get_progression_suggestion(
-            difficulty, count, score_pct, fmt, speed_mode
-        )
 
     results_text = exercise.format_test_results(
         pairs, merged_results, difficulty,
         personal_best_text=personal_best_text,
-        progression_text=progression_text,
         streak_text=streak_text,
         compact=compact,
         fmt=fmt,
     )
+
+    if rank_line:
+        results_text += "\n\n" + rank_line
 
     if new_achievements:
         results_text += "\n\n🏅 *Achievement unlocked!*"
@@ -532,6 +595,7 @@ async def _show_test_results(context, chat_id, state) -> None:
             kb_kwargs["offer_speed_run"] = should_offer_speed_run(
                 count, score_pct, speed_mode
             )
+            kb_kwargs["offer_leaderboard_join"] = offer_join
         keyboard = exercise.get_results_keyboard(**kb_kwargs)
 
     await context.bot.send_message(
@@ -561,7 +625,9 @@ async def start_retry_mistakes(query, context) -> None:
         # Re-ask the missed link questions (same direction), in chain order.
         # Prev-direction rounds run descending: ascending would leak — the
         # prompt for link i (words[i+1]) is the expected answer for link i+1.
-        descending = any(r.get("direction") == "prev" for r in wrong_results)
+        descending = any(
+            r.get("direction") in ("prev", "last") for r in wrong_results
+        )
         wrong_results.sort(key=lambda r: r["pair_index"], reverse=descending)
         for r in wrong_results:
             quiz_items.append({
@@ -638,16 +704,28 @@ async def start_reverse_quiz(query, context) -> None:
 
     quiz_items = []
     if fmt == "list":
-        last_dir = last_results[0].get("direction", "next") if last_results else "next"
-        list_dir = "next" if last_dir == "prev" else "prev"
-        if list_dir == "next":
-            for idx in range(len(last_pairs) - 1):
+        # Same shape as the fresh round (see word_memo._build_list_quiz_items):
+        # the walk opens with an unprompted question for the end word it starts
+        # from, then chains. pair_index = position of the recalled word.
+        first_dir = last_results[0].get("direction", "next") if last_results else "next"
+        backwards = first_dir in ("next", "first")
+        n = len(last_pairs)
+        if not backwards:
+            quiz_items.append({
+                "pair_index": 0, "direction": "first",
+                "shown_word": None, "expected": last_pairs[0],
+            })
+            for idx in range(1, n):
                 quiz_items.append({
                     "pair_index": idx, "direction": "next",
-                    "shown_word": last_pairs[idx], "expected": last_pairs[idx + 1],
+                    "shown_word": last_pairs[idx - 1], "expected": last_pairs[idx],
                 })
         else:
-            for idx in range(len(last_pairs) - 2, -1, -1):
+            quiz_items.append({
+                "pair_index": n - 1, "direction": "last",
+                "shown_word": None, "expected": last_pairs[n - 1],
+            })
+            for idx in range(n - 2, -1, -1):
                 quiz_items.append({
                     "pair_index": idx, "direction": "prev",
                     "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx],
@@ -694,7 +772,7 @@ async def start_reverse_quiz(query, context) -> None:
     if fmt == "list":
         flip_note = (
             "Back to *forward* order — recall the word that comes next!"
-            if quiz_items and quiz_items[0]["direction"] == "next"
+            if quiz_items and quiz_items[0]["direction"] == "first"
             else "This time you walk the list *backwards* — recall the word that came before!"
         )
     else:

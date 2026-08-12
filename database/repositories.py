@@ -386,6 +386,68 @@ class ExerciseSessionRepository:
             for r in result
         ]
 
+    async def get_rank_for_user(
+        self,
+        telegram_id: int,
+        min_tests: int = 3,
+        exclude_telegram_ids: Iterable[int] = (),
+    ) -> Optional[dict]:
+        """Where *telegram_id* would place on the leaderboard right now.
+
+        Returns {rank, total, avg_pct, tests, opted_in} — rank/total are None
+        when the user has fewer than *min_tests* scored tests (not rankable
+        yet; *tests* then tells the caller how far off they are). Ranks the
+        user against the opted-in board even when they haven't opted in, so
+        results can nudge them with a provisional placing. Returns None when
+        the user has no scored tests at all, or is excluded (admins).
+        """
+        if telegram_id in set(exclude_telegram_ids):
+            return None
+
+        board = (
+            select(
+                User.telegram_id.label("telegram_id"),
+                func.avg(_PCT).label("avg_pct"),
+                func.count(ExerciseSession.id).label("tests"),
+                User.leaderboard_opt_in.label("opted_in"),
+            )
+            .join(ExerciseSession, ExerciseSession.user_id == User.id)
+            .where(_IS_SCORED_TEST)
+            .group_by(User.id)
+        )
+        excluded = [t for t in exclude_telegram_ids]
+        if excluded:
+            board = board.where(User.telegram_id.not_in(excluded))
+        board = board.subquery()
+
+        rows = (await self.session.execute(
+            select(board.c.telegram_id, board.c.avg_pct, board.c.tests, board.c.opted_in)
+        )).all()
+
+        me = next((r for r in rows if r.telegram_id == telegram_id), None)
+        if me is None:
+            return None
+
+        opted_in = bool(me.opted_in)
+        if (me.tests or 0) < min_tests:
+            return {
+                "rank": None, "total": None, "tests": me.tests or 0,
+                "avg_pct": me.avg_pct or 0.0, "opted_in": opted_in,
+            }
+
+        # The board itself is opted-in users only; an opted-out viewer is
+        # ranked *into* it (total counts them) so the nudge shows a real place.
+        listed = [
+            r for r in rows
+            if r.tests >= min_tests and (r.opted_in or r.telegram_id == telegram_id)
+        ]
+        my_avg = me.avg_pct or 0.0
+        rank = 1 + sum(1 for r in listed if (r.avg_pct or 0.0) > my_avg)
+        return {
+            "rank": rank, "total": len(listed), "tests": me.tests,
+            "avg_pct": my_avg, "opted_in": opted_in,
+        }
+
     async def get_global_stats(self) -> dict:
         """Bot-wide overview for the admin dashboard."""
         now = utcnow()

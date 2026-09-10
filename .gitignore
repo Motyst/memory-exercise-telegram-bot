@@ -54,8 +54,9 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Project specific
-bot.log
+# Project specific (bot.log.1 etc. are rotated copies)
+bot.log*
+.pytest_cache/
 mental_training.db
 
 # Runtime cache of Telegram file_ids (machine-specific, bot writes it)

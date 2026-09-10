@@ -7,6 +7,7 @@ A Telegram bot for mental training exercises.
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # Add project root to path
@@ -23,8 +24,13 @@ def setup_logging() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO,
         handlers=[
+            # stdout → journald on the VPS (journalctl -u mental_training_bot);
+            # the file is the local/dev convenience. Rotated so it can't grow
+            # forever: 5 MB × 4 files max.
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler("bot.log")
+            RotatingFileHandler(
+                "bot.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8",
+            ),
         ]
     )
     

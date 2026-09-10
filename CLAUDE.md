@@ -28,6 +28,7 @@ without asking.
 - **Users only ever see *training* time.** Reconstructed "time in bot" is admin-side only; the leaderboard stays on accuracy — time is context, never rank.
 - **Passive audio listens don't count a streak** (audio quiz does).
 - **Never back up SQLite with `cp`** — WAL mode makes a live copy inconsistent. Use `scripts/backup_db.sh`.
+- **Never edit files on the VPS.** `scripts/deploy.sh` refuses to pull over a dirty tree, and `/admin version` flags one. Hand edits once left the server silently on old code for weeks.
 - Scores live in the real `score`/`max_score` columns, never in `parameters` JSON — stats/leaderboard aggregate in SQL, not Python.
 - Answer recording is serialized per user with an asyncio lock — required under `concurrent_updates`.
 - Quiz flow assumes private chats (`chat_id == telegram user id` in results/streak paths).
@@ -69,6 +70,8 @@ data/audio/{1min,3min,5min}/   # Stories: .mp3 + optional .json sidecar; rescann
 scripts/make_story.py          # Story text → mp3 (edge-tts) + sidecar; --batch auto-buckets
 scripts/STORY_GUIDE.md         # Story + quiz writing rules — follow when writing stories
 scripts/backup_db.sh           # SQLite online backup, cron'd daily on the VPS
+scripts/deploy.sh              # VPS deploy: dirty-tree check → pull → restart → verify
+tests/                         # pytest suite (pure logic, SQL rules, engine races); fakes.py stubs PTB
 dashboard.py                   # Streamlit dashboard — reads a SNAPSHOT, never the live DB
 requirements-dashboard.txt     # Dashboard-only deps, kept out of requirements.txt
 docs/FEATURES.md               # Full behavioural spec for every feature
@@ -115,7 +118,7 @@ prefix (`word_memo`, `audio_viz`, `lb`, `menu`, `settings`, `placement`,
 - **Audio Visualization** — narrated story .mp3 the user visualizes; passive by design, optional detail quiz as proxy score. Two flags, both default OFF (`/admin audio`, `/admin audioquiz`). Library rescanned live from `data/audio/`. Fully self-contained → clean removal.
 - **Access codes** (`bot/redeem.py`) — one-time `MTB-XXXX-XXXX` codes set subscription tier; the Skool↔Telegram data link. Tiers not enforced anywhere yet.
 - **Daily reminders** (`bot/reminders.py`) — per-user opt-in, hourly sweep, one-tap ping button with last-used settings, ×1.25 fresh-mind XP within 15 min.
-- **Usage analytics** (`bot/analytics.py`) — engaged training seconds on the session row + a raw interaction stream (`activity_events`, never message text). Feeds `/admin time` and the dashboard.
+- **Usage analytics** (`bot/analytics.py`) — engaged training seconds on the session row + a raw interaction stream (`activity_events`, never message text, purged after `ACTIVITY_RETENTION_DAYS` = 90 by a daily job). Also bumps `last_active_at` (hourly throttle). Feeds `/admin time` and the dashboard.
 - **Gamification** — XP bars per skill (challenge rating, diminishing returns, accuracy gates), 21 achievements, opt-in leaderboard by average score, subscription helpers.
 
 ## Database Models
@@ -150,12 +153,16 @@ prefix (`word_memo`, `audio_viz`, `lb`, `menu`, `settings`, `placement`,
 - `/admin` totals · `users` per-user progress · `export` CSV of scored sessions · `time [days]` engaged minutes
 - Dashboard: `streamlit run dashboard.py` against a snapshot (`scp root@<VPS>:/root/backups/latest.db snapshot.db`). Charts export PNG. See `docs/DASHBOARD.md`
 - Backups: `scripts/backup_db.sh`, cron'd 03:00 UTC daily, 14-day retention
+- Tests: `pip install -r requirements-dev.txt` then `python -m pytest` (temp SQLite, no network, ~10 s)
 
 ## Deployment (VPS)
 
 Ubuntu VPS (`root@<VPS_IP>` — real address kept out of this public repo; it's
 in your `.env`/SSH config and your local deploy notes). App at
 `/root/mental_training_bot/`; use `venv/bin/python3`, NOT system python3.
+
+Deploy: `ssh root@<VPS_IP> bash /root/mental_training_bot/scripts/deploy.sh`
+(refuses on a dirty tree, fast-forward pulls, restarts, prints the build line).
 
 Systemd unit `/etc/systemd/system/mental_training_bot.service` —
 `ExecStart=/root/mental_training_bot/venv/bin/python3 main.py`,

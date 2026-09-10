@@ -24,8 +24,9 @@ flag) — it is the only place that sees every interaction, and the admin
 Removal: delete this module, its import + TypeHandler registration in
 bot/__init__.py, the `mark_round_start`/`round_duration_s` calls in
 word_memo.py / quiz_engine.py / audio_viz.py, the ActivityEvent model +
-ActivityEventRepository, the ANALYTICS_ENABLED_KEY flag and the
-/admin analytics + /admin time subcommands. `duration_s` can stay: it's inert
+ActivityEventRepository, the ANALYTICS_ENABLED_KEY flag, the retention job
+registration in bot/__init__.py and the /admin analytics + /admin time
+subcommands. `duration_s` can stay: it's inert
 without the calls that populate it. Keep the last_active_at touch somewhere
 (a TypeHandler of its own) or /admin actives go back to counting /start only.
 """
@@ -36,7 +37,7 @@ import time
 from typing import Optional
 
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import Application, ContextTypes
 
 from database import get_session, ActivityEventRepository, UserRepository
 from .features import is_flag_enabled, ANALYTICS_ENABLED_KEY
@@ -53,6 +54,13 @@ MAX_ROUND_SECONDS = 3600
 # Gap between two events that ends a "visit" when sessionizing the raw stream.
 # Not used by the bot itself — documented here so analysis code agrees with it.
 IDLE_GAP_MIN = 5
+
+# Raw events older than this are deleted by the daily retention job. A
+# quarter is plenty for funnel/return-visit analysis; everything worth
+# keeping long-term (scores, duration_s) lives on exercise_sessions, which
+# is never purged. Runs whether or not the logging flag is on — old rows
+# don't get younger because logging paused.
+ACTIVITY_RETENTION_DAYS = 90
 
 # Fire-and-forget log tasks. Kept referenced so the event loop can't garbage
 # collect a task mid-INSERT (asyncio only holds weak references).
@@ -99,6 +107,35 @@ def log_event(telegram_id: int, kind: str, detail: Optional[str] = None) -> None
     task = asyncio.create_task(_write_event(telegram_id, kind, detail))
     _pending.add(task)
     task.add_done_callback(_pending.discard)
+
+
+async def _pending_snapshot_wait() -> None:
+    """Await every queued log/touch task — tests and shutdown only."""
+    if _pending:
+        await asyncio.gather(*list(_pending), return_exceptions=True)
+
+
+def schedule_retention_job(application: Application) -> None:
+    """Daily purge of activity_events older than ACTIVITY_RETENTION_DAYS.
+    First run 5 minutes after start so a restart storm can't stack purges."""
+    application.job_queue.run_repeating(
+        purge_old_events, interval=86400, first=300, name="activity_retention",
+    )
+
+
+async def purge_old_events(context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        async with get_session() as session:
+            purged = await ActivityEventRepository(session).purge_older_than(
+                ACTIVITY_RETENTION_DAYS
+            )
+        if purged:
+            logger.info(
+                f"Activity retention: purged {purged} events older than "
+                f"{ACTIVITY_RETENTION_DAYS} days"
+            )
+    except Exception:
+        logger.exception("Activity retention job failed")
 
 
 async def _write_event(telegram_id: int, kind: str, detail: Optional[str]) -> None:

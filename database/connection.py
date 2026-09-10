@@ -23,14 +23,18 @@ engine = create_async_engine(
     future=True
 )
 
-# Enable WAL mode for better concurrent write performance.
-# PRAGMA is SQLite-only — guard so a future Postgres/MySQL DATABASE_URL
-# doesn't blow up on first connect.
+# Per-connection SQLite pragmas. PRAGMA is SQLite-only — guard so a future
+# Postgres/MySQL DATABASE_URL doesn't blow up on first connect.
+#   journal_mode=WAL  — concurrent readers don't block the writer
+#   foreign_keys=ON   — SQLite ignores FK constraints unless asked, per
+#                       connection. Nothing deletes users today; this makes
+#                       sure a future cleanup can't orphan sessions/skills.
 if engine.dialect.name == "sqlite":
     @event.listens_for(engine.sync_engine, "connect")
-    def set_wal_mode(dbapi_connection, connection_record):
+    def set_sqlite_pragmas(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 # Create async session factory

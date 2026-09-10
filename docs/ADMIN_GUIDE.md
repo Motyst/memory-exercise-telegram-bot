@@ -210,7 +210,10 @@ app-open/close signal, so "time in the bot" can only be *reconstructed* from
 this by grouping events and starting a new visit after a 5-minute gap. Fuzzy
 by nature — use it for patterns (which screens people bounce off, how often
 they come back), never as a member's training time. `/admin analytics off`
-stops the logging; nothing else changes.
+stops the logging; nothing else changes. Rows older than 90 days are deleted
+by a daily job (`ACTIVITY_RETENTION_DAYS` in `bot/analytics.py`) — the
+numbers you care about long-term (scores, `duration_s`) live on the sessions
+table and are never purged.
 
 Analysing it: the table is plain SQLite, so `docs/DASHBOARD.md`'s Streamlit
 setup reads it read-only alongside the session table. Retention is unlimited
@@ -261,6 +264,18 @@ beside it.
 
 ## VPS operations
 
+**Deploying a new version** — one command from your machine:
+
+```
+ssh root@<VPS_IP> bash /root/mental_training_bot/scripts/deploy.sh
+```
+
+It refuses if files were edited on the server (fix: `git stash` there, or
+discard), fast-forward pulls, restarts the service, and prints the build
+line from the log. Then `/admin version` in the bot should show the new
+commit. Never edit files on the VPS directly — a dirty tree blocks every
+future deploy and the bot keeps running old code without telling you.
+
 ```bash
 ssh root@<VPS_IP>
 
@@ -269,20 +284,22 @@ systemctl restart mental_training_bot         # after any code/config change
 journalctl -u mental_training_bot -n 50 --no-pager   # recent logs
 
 # deploy latest code (normal path — commit + push locally first)
-cd /root/mental_training_bot && git pull && systemctl restart mental_training_bot
+bash /root/mental_training_bot/scripts/deploy.sh
 
 # watch logs live while testing a command in Telegram
 journalctl -u mental_training_bot -n 0 -f
 
-# backup the database (do this before risky changes!)
-cp /root/mental_training_bot/mental_training.db /root/backup_$(date +%F).db
+# backup the database (do this before risky changes!) — never cp a WAL-mode
+# SQLite file; this uses the online backup API and verifies the copy
+bash /root/mental_training_bot/scripts/backup_db.sh
 ```
 
-Normal deploy flow is always: edit on laptop → commit → push to GitHub → `git pull`
-on VPS → restart. Avoid editing files directly on the VPS — those edits sit
-uncommitted and cause `git pull` merge conflicts later (local changes would be
-overwritten). If a stray one-off edit did happen on the VPS and you're sure
-GitHub's version supersedes it: `git checkout -- <file>` before pulling.
+Normal deploy flow is always: edit on laptop → commit → push to GitHub →
+`deploy.sh` on the VPS. Never edit files directly on the VPS — those edits sit
+uncommitted, `deploy.sh` refuses to run, and `/admin version` shows ⚠️. If a
+stray edit did happen and you're sure GitHub's version supersedes it:
+`git stash push -m server-edits` (keeps a copy) or `git checkout -- <file>`
+(discards), then deploy again.
 
 One-off single-file push without a full deploy cycle (e.g. testing a tiny
 change before committing) — from a local Git Bash / PowerShell terminal:

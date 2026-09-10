@@ -28,7 +28,7 @@ from .commands import (
 )
 from .handlers import callback_handler, error_handler, text_message_handler
 from .admin import admin_command
-from .analytics import activity_tracker
+from .analytics import activity_tracker, schedule_retention_job
 from .features import load_feature_flags
 from .menu import sync_command_menu
 from .redeem import redeem_command
@@ -74,6 +74,7 @@ async def on_startup(application: Application) -> None:
     await _remove_admins_from_leaderboard()
     await sync_command_menu(application.bot)
     schedule_reminder_job(application)
+    schedule_retention_job(application)
     bot_info = await application.bot.get_me()
     logger.info(f"Bot started: @{bot_info.username}")
 

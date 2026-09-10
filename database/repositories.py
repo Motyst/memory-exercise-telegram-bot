@@ -797,8 +797,8 @@ class ActivityEventRepository:
         return [(kind, count) for kind, count in result]
 
     async def purge_older_than(self, days: int) -> int:
-        """Retention helper — nothing calls this automatically. Wire it to a
-        job only after deciding how long raw events should be kept."""
+        """Delete raw events older than *days*. Called daily by the retention
+        job in bot/analytics.py (ACTIVITY_RETENTION_DAYS)."""
         cutoff = utcnow() - timedelta(days=days)
         result = await self.session.execute(
             ActivityEvent.__table__.delete().where(ActivityEvent.ts < cutoff)

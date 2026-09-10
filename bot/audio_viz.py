@@ -232,7 +232,7 @@ async def _start_story(query, context, exercise, bucket: str) -> None:
                 )
             save_file_id(story, audio_msg.audio.file_id)
     except Exception as e:
-        logger.error(f"Failed to send audio {story.story_id}: {e}")
+        logger.exception(f"Failed to send audio {story.story_id}: {e}")
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text="⚠️ Couldn't load that story. Please try again.",
@@ -335,7 +335,7 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
             xp_enabled=is_xp_enabled() and is_flag_enabled(AUDIO_XP_ENABLED_KEY),
         )
     except Exception as e:
-        logger.error(f"Failed to save audio session: {e}")
+        logger.exception(f"Failed to save audio session: {e}")
 
     state.pop("audio_story_id", None)
     if label == "0":
@@ -468,7 +468,7 @@ async def _show_quiz_results(query, context, exercise, state: dict) -> None:
             else:
                 streak_text = f"🔥 *{s}-day streak!* Keep it up!"
     except Exception as e:
-        logger.error(f"Failed to save audio quiz session: {e}")
+        logger.exception(f"Failed to save audio quiz session: {e}")
 
     lines = [
         f"📊 *Detail Test — {title}*",

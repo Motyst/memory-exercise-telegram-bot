@@ -25,7 +25,7 @@ get_users_due_reminder (database/repositories.py), REMINDERS_ENABLED_KEY
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -158,7 +158,7 @@ async def claim_fresh_mind_bonus(user_repo, db_user, base_xp: int) -> int:
     so it pays at most once per day even across restarts. Returns bonus XP."""
     prefs = db_user.preferences or {}
     rem = dict(prefs.get("reminder", {}))
-    today = date.today().isoformat()
+    today = utcnow().date().isoformat()
     if rem.get("bonus_date") == today:
         return 0
     rem["bonus_date"] = today
@@ -299,7 +299,7 @@ async def handle_reminder_callback(query, context, data: str) -> None:
         rem = prefs.get("reminder", {})
         eligible = (
             _within_window(rem.get("last_ping"))
-            and rem.get("bonus_date") != date.today().isoformat()
+            and rem.get("bonus_date") != utcnow().date().isoformat()
         )
 
         state = get_user_state(context)

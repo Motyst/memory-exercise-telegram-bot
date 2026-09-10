@@ -17,12 +17,17 @@ Two independent measures, deliberately kept apart:
    admin-side analysis only, never quoted to users as their training time.
    Gated by the `analytics_enabled` flag (/admin analytics on|off).
 
+The tracker also bumps `User.last_active_at` (throttled, NOT gated by the
+flag) — it is the only place that sees every interaction, and the admin
+"active today/week" counts read that column.
+
 Removal: delete this module, its import + TypeHandler registration in
 bot/__init__.py, the `mark_round_start`/`round_duration_s` calls in
 word_memo.py / quiz_engine.py / audio_viz.py, the ActivityEvent model +
 ActivityEventRepository, the ANALYTICS_ENABLED_KEY flag and the
 /admin analytics + /admin time subcommands. `duration_s` can stay: it's inert
-without the calls that populate it.
+without the calls that populate it. Keep the last_active_at touch somewhere
+(a TypeHandler of its own) or /admin actives go back to counting /start only.
 """
 
 import asyncio
@@ -33,7 +38,7 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from database import get_session, ActivityEventRepository
+from database import get_session, ActivityEventRepository, UserRepository
 from .features import is_flag_enabled, ANALYTICS_ENABLED_KEY
 
 logger = logging.getLogger(__name__)
@@ -52,6 +57,12 @@ IDLE_GAP_MIN = 5
 # Fire-and-forget log tasks. Kept referenced so the event loop can't garbage
 # collect a task mid-INSERT (asyncio only holds weak references).
 _pending: set[asyncio.Task] = set()
+
+# last_active_at is bumped at most once per user per this many seconds —
+# one UPDATE an hour instead of one per tap. Precision of "active today"
+# only needs hours.
+TOUCH_INTERVAL_S = 3600
+_last_touch: dict[int, float] = {}
 
 
 # ---- Engaged training time -------------------------------------------------
@@ -98,6 +109,25 @@ async def _write_event(telegram_id: int, kind: str, detail: Optional[str]) -> No
         logger.warning(f"Activity log failed ({kind}/{detail}): {e}")
 
 
+def touch_last_active(telegram_id: int) -> None:
+    """Queue a last_active_at bump, throttled per user. Never awaited."""
+    now = time.monotonic()
+    if now - _last_touch.get(telegram_id, float("-inf")) < TOUCH_INTERVAL_S:
+        return
+    _last_touch[telegram_id] = now
+    task = asyncio.create_task(_write_touch(telegram_id))
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
+
+
+async def _write_touch(telegram_id: int) -> None:
+    try:
+        async with get_session() as session:
+            await UserRepository(session).touch_last_active(telegram_id)
+    except Exception as e:
+        logger.warning(f"last_active_at touch failed for {telegram_id}: {e}")
+
+
 async def activity_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """TypeHandler in group -1: sees every update before the real handlers.
 
@@ -107,6 +137,8 @@ async def activity_tracker(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     user = update.effective_user
     if user is None:
         return
+
+    touch_last_active(user.id)
 
     if update.callback_query and update.callback_query.data:
         # Prefix + action only ("word_memo:count"), not the full payload.

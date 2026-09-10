@@ -26,13 +26,14 @@ from .commands import (
     level_command,
     settings_command,
 )
-from .handlers import callback_handler, text_message_handler
+from .handlers import callback_handler, error_handler, text_message_handler
 from .admin import admin_command
 from .analytics import activity_tracker
 from .features import load_feature_flags
 from .menu import sync_command_menu
 from .redeem import redeem_command
 from .reminders import schedule_reminder_job
+from .version import get_build_info
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,16 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler)
     )
+    application.add_error_handler(error_handler)
     logger.info("Handlers registered successfully")
 
 
 async def on_startup(application: Application) -> None:
-    logger.info("Starting Mental Training Bot...")
+    build = get_build_info()
+    logger.info(
+        f"Starting Mental Training Bot — build {build.short} "
+        f"({build.date}: {build.subject}){' [DIRTY TREE]' if build.dirty else ''}"
+    )
     await init_db()
     logger.info("Database initialized")
     await load_feature_flags()

@@ -144,7 +144,7 @@ async def process_audio_completion(
                 )
             lines += await _check_achievements(session, db_user)
     except Exception as e:
-        logger.error(f"Audio XP/achievement processing failed for {telegram_id}: {e}")
+        logger.exception(f"Audio XP/achievement processing failed for {telegram_id}: {e}")
     return lines
 
 

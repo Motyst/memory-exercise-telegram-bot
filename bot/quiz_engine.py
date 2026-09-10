@@ -576,7 +576,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                         score_pct=score_pct,
                     )
     except Exception as e:
-        logger.error(f"Failed to save/check test results: {e}")
+        logger.exception(f"Failed to save/check test results: {e}")
 
     count = state.get("count", len(pairs))
     speed_mode = state.get("speed_mode", False)
@@ -613,7 +613,7 @@ async def _show_test_results(context, chat_id, state) -> None:
         try:
             await save_recent_words(chat_id, pairs)
         except Exception as e:
-            logger.error(f"Failed to save recent words: {e}")
+            logger.exception(f"Failed to save recent words: {e}")
 
     if is_placement:
         rec_diff, rec_count = get_placement_recommendation(score_pct)

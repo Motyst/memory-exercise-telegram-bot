@@ -10,6 +10,7 @@ word_memo.py, audio_viz.py and quiz_engine.py.
 import logging
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, Forbidden, NetworkError
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -108,6 +109,44 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             "Use /start to see the main menu, or /help for instructions."
         )
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global PTB error handler: full traceback in the log, one short line to
+    the user so a crashed handler doesn't look like a dead button.
+
+    Expected noise is downgraded: users blocking the bot (Forbidden), the
+    double-tap "message is not modified" BadRequest, and transient network
+    errors. Note BadRequest subclasses NetworkError in PTB, so it is checked
+    first.
+    """
+    err = context.error
+    if isinstance(err, Forbidden):
+        logger.warning(f"Forbidden (user blocked the bot?): {err}")
+        return
+    if isinstance(err, BadRequest) and "not modified" in str(err).lower():
+        return
+    if isinstance(err, NetworkError) and not isinstance(err, BadRequest):
+        logger.warning(f"Telegram network error: {err}")
+        return
+
+    user_id = "?"
+    chat_id = None
+    if isinstance(update, Update):
+        if update.effective_user:
+            user_id = update.effective_user.id
+        if update.effective_chat:
+            chat_id = update.effective_chat.id
+    logger.error(f"Unhandled error (user {user_id}): {err!r}", exc_info=err)
+
+    if chat_id is not None:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ Something went wrong on my side. Use /start to continue.",
+            )
+        except Exception:
+            pass
 
 
 # Callback routing table: prefix of callback_data -> handler(query, context, data).

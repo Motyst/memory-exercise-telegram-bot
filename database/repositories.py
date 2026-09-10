@@ -7,7 +7,7 @@ fast as the session table grows.
 """
 
 import secrets
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from typing import Iterable, Optional
 from sqlalchemy import select, update, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,7 +97,7 @@ class UserRepository:
         if not user:
             return {"streak": 0, "longest": 0, "is_first_today": False}
 
-        today = date.today()
+        today = utcnow().date()
         last = user.last_trained_date
 
         if last == today:
@@ -124,6 +124,16 @@ class UserRepository:
             "longest": user.longest_streak,
             "is_first_today": True,
         }
+
+    async def touch_last_active(self, telegram_id: int) -> None:
+        """Bump last_active_at with a single UPDATE — no row load. Called from
+        the activity tracker on every interaction (throttled there), so the
+        admin "active today/week" counts reflect button-only users too."""
+        await self.session.execute(
+            update(User)
+            .where(User.telegram_id == telegram_id)
+            .values(last_active_at=utcnow())
+        )
 
     async def update_preferences(self, telegram_id: int, preferences: dict) -> Optional[User]:
         user = await self.get_by_telegram_id(telegram_id)
@@ -153,7 +163,7 @@ class UserRepository:
                 rem["utc_hour"].as_integer() == utc_hour,
                 or_(
                     User.last_trained_date.is_(None),
-                    User.last_trained_date < date.today(),
+                    User.last_trained_date < utcnow().date(),
                 ),
             )
         )

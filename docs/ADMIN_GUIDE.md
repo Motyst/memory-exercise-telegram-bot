@@ -16,6 +16,8 @@ Non-admins get silence — the commands don't exist for them.
 | `/admin users` | Per-user progress: tests, avg %, best %, streak, last active (top 30 by activity) |
 | `/admin time [days]` | Engaged training minutes per user (default last 7 days) |
 | `/admin export` | Sends you a CSV of every scored test — opens in Excel/Google Sheets |
+| `/admin version` | Which commit is actually running, uptime, and a ⚠️ if files were edited on the server (a pull will refuse until they're stashed) |
+| `/admin changes [n]` | Last n commit subjects of the running build (default 8, max 20) — a quick "what changed lately" |
 | `/admin grant <telegram_id> <free\|basic\|premium> [days]` | Set a user's subscription tier; omit days = no expiry |
 | `/admin xp on` / `/admin xp off` | Turn the whole XP/level system on/off (see below) |
 | `/admin audio on` / `/admin audio off` | Show/hide the Audio Visualization exercise for everyone (default: off) |

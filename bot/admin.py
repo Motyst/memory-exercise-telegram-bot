@@ -6,6 +6,8 @@ Admin commands — usable only by Telegram IDs in ADMIN_TELEGRAM_IDS.
 /admin time [d]  — engaged training minutes per user (bot/analytics.py)
 /admin export    — CSV of all test sessions (for spreadsheets / dashboard)
 /admin grant <telegram_id> <free|basic|premium> [days]
+/admin version   — running commit, uptime, dirty-tree warning (bot/version.py)
+/admin changes [n] — last n commit subjects of the running build
 """
 
 import csv
@@ -29,6 +31,7 @@ from .features import (
 )
 from .menu import sync_command_menu
 from .redeem import admin_codes
+from .version import format_version, format_changes, get_build_info, DEFAULT_CHANGES
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,15 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                           "📈 Usage analytics", "/admin analytics on|off")
     elif sub == "time":
         await _admin_time(update, args[1:])
+    elif sub == "version":
+        await update.message.reply_text(format_version())
+    elif sub == "changes":
+        try:
+            n = int(args[1]) if len(args) > 1 else DEFAULT_CHANGES
+        except ValueError:
+            await update.message.reply_text("Usage: /admin changes [n]")
+            return
+        await update.message.reply_text(format_changes(n))
     else:
         await _admin_overview(update)
 
@@ -83,8 +95,11 @@ async def _admin_overview(update: Update) -> None:
     reminders_status = "ON ✅" if is_flag_enabled(REMINDERS_ENABLED_KEY) else "OFF ⛔"
     sprint_status = "ON ✅" if is_flag_enabled(SPRINT_ENABLED_KEY) else "OFF ⛔"
     analytics_status = "ON ✅" if is_flag_enabled(ANALYTICS_ENABLED_KEY) else "OFF ⛔"
+    build = get_build_info()
+    build_line = f"🏷 Build: {build.short} ({build.date}){' ⚠️ local edits' if build.dirty else ''}"
     text = (
         "🛠 Admin — Bot Overview\n\n"
+        f"{build_line}\n"
         f"👥 Users: {stats['total_users']} total, +{stats['new_users_week']} this week\n"
         f"🟢 Active: {stats['active_day']} today, {stats['active_week']} this week\n"
         f"🎯 Tests: {stats['tests_total']} total, {stats['tests_week']} this week\n"
@@ -107,7 +122,9 @@ async def _admin_overview(update: Update) -> None:
         "/admin audioxp on|off — audio XP (visualization bar)\n"
         "/admin reminders on|off — toggle daily reminders\n"
         "/admin sprint on|off — toggle the daily sprint challenge\n"
-        "/admin analytics on|off — toggle the raw interaction log"
+        "/admin analytics on|off — toggle the raw interaction log\n"
+        "/admin version — running commit + uptime\n"
+        "/admin changes [n] — recent commits of the running build"
     )
     await update.message.reply_text(text)
 

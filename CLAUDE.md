@@ -53,6 +53,7 @@ bot/access.py                  # is_admin, admin_only, subscription tier gating
 bot/features.py                # Runtime feature flags (DB-persisted, cached)
 bot/audio_viz.py               # Audio Visualization flow
 bot/menu.py                    # Telegram command menu sync
+bot/version.py                 # Running-build info (git, cached at startup) for /admin version|changes
 gamification/achievements.py   # Achievement defs + evaluation; register_achievements()
 gamification/xp.py             # XP/level system: skills, curve, diminishing returns
 gamification/audio_xp.py       # Audio XP + audio achievements
@@ -101,6 +102,7 @@ to `<name>_command` in `bot/commands.py`.
 
 `/admin` (admin-only): overview | `users` | `time [days]` | `export` CSV |
 `grant <id> <tier> [days]` | `codes <n> <tier> <days|lifetime>` | `codes list` |
+`version` | `changes [n]` (running commit / recent commits, `bot/version.py`) |
 toggles `xp|audio|audioquiz|audioxp|reminders|sprint|analytics on|off`.
 
 Callbacks route through `callback_handler` → `CALLBACK_ROUTES`, keyed by

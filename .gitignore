@@ -67,3 +67,7 @@ data/audio/file_ids.json
 scripts/queue/
 *.db-wal
 *.db-shm
+
+# Personal career material - not product docs, and this repo is public
+PORTFOLIO.md
+AGENTS.md

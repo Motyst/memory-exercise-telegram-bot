@@ -171,5 +171,3 @@ journalctl -u mental_training_bot -n 50 --no-pager
 - **SQLite → PostgreSQL + Redis** planned; switch to Alembic then. Plan: `docs/SCALING.md`
 - Subscription tiers + gating helpers exist, but nothing is gated and there's no payment flow
 - `ExerciseType` has placeholder entries (NUMBER_SEQUENCE, PATTERN_RECOGNITION, MENTAL_MATH) — not implemented
-
-Read LEARNING.md at the start of every session and follow its instructions.

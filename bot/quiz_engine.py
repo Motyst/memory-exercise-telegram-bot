@@ -84,19 +84,32 @@ def cancel_question_timer(context, user_id: int) -> None:
         job.schedule_removal()
 
 
+def study_timer_name(user_id: int) -> str:
+    return f"quiz_timer_{user_id}"
+
+
+def cancel_study_timer(context, user_id: int) -> None:
+    """Drop any pending study-phase countdown for this user. A stale one
+    (results-screen button tapped mid-study) would otherwise start the quiz a
+    second time and double up every question timer."""
+    for job in context.job_queue.get_jobs_by_name(study_timer_name(user_id)):
+        job.schedule_removal()
+
+
 async def _question_timeout_callback(context) -> None:
     job = context.job
     chat_id, user_id = job.chat_id, job.data["user_id"]
     state = get_job_user_state(context.application, user_id)
     if not state.get("test_active"):
         return
-    # Stale-timer guard: if the index already moved past the question this
-    # timer was armed for, the user answered in time — don't time out the
-    # next question.
-    if state.get("test_current_index", 0) != job.data.get("question_index"):
-        return
-    state["last_timeout_at"] = time.monotonic()
-    await record_answer(context, chat_id, "(timed out)", user_id=user_id)
+    # The stale-timer guard (index still == the question this timer was armed
+    # for) runs INSIDE the answer lock, in _record_answer_impl. Checking it
+    # here would race an answer that is mid-flight holding the lock: the timer
+    # passes, waits for the lock, then times out the NEXT question.
+    await record_answer(
+        context, chat_id, "(timed out)", user_id=user_id,
+        question_index=job.data.get("question_index"),
+    )
 
 
 # ============================================================================
@@ -108,6 +121,10 @@ async def start_quiz_after_timer(context) -> None:
     chat_id, user_id = job.chat_id, job.data["user_id"]
     state = get_job_user_state(context.application, user_id)
     if not state.get("test_quiz_items"):
+        return
+    # Belt and braces with cancel_study_timer: never start a quiz that is
+    # already running.
+    if state.get("test_active"):
         return
     study_msg_id = state.get("test_study_message_id")
     try:
@@ -132,14 +149,7 @@ async def send_next_question(context, chat_id, state, user_id=None) -> None:
     quiz_items = state.get("test_quiz_items", [])
 
     if current_index >= len(quiz_items):
-        # If the final question just timed out, hold for the grace window so a
-        # late answer can still be credited before results render (test_active
-        # stays True during the sleep, so the answer routes through normally).
-        last_timeout_at = state.get("last_timeout_at")
-        if last_timeout_at is not None and time.monotonic() - last_timeout_at <= ANSWER_TIMEOUT_GRACE:
-            await asyncio.sleep(ANSWER_TIMEOUT_GRACE)
-        await cleanup_bot_messages(context.bot, chat_id, state)
-        await _show_test_results(context, chat_id, state)
+        await _finish_quiz(context, chat_id, state)
         return
 
     item = quiz_items[current_index]
@@ -165,14 +175,44 @@ async def send_next_question(context, chat_id, state, user_id=None) -> None:
     )
 
 
-async def record_answer(context, chat_id, answer_text, user_id=None, answer_message_id=None) -> None:
+async def _finish_quiz(context, chat_id, state) -> None:
+    """Grace window, then results.
+
+    Must run with the answer lock RELEASED: if the final question timed out,
+    the sleep exists precisely so a late answer can take the lock and
+    re-score it (the grace path in _record_answer_impl). test_active stays
+    True during the sleep, so that answer still routes through record_answer.
+    """
+    last_timeout_at = state.get("last_timeout_at")
+    if last_timeout_at is not None and time.monotonic() - last_timeout_at <= ANSWER_TIMEOUT_GRACE:
+        await asyncio.sleep(ANSWER_TIMEOUT_GRACE)
+    await cleanup_bot_messages(context.bot, chat_id, state)
+    await _show_test_results(context, chat_id, state)
+
+
+async def record_answer(
+    context, chat_id, answer_text, user_id=None, answer_message_id=None,
+    question_index=None,
+) -> None:
+    """Record one answer. *question_index* is set by the timeout job only:
+    the timeout is applied solely if that question is still the current one."""
     if user_id is None:
         user_id = chat_id
     async with get_answer_lock(user_id):
-        await _record_answer_impl(context, chat_id, answer_text, user_id, answer_message_id)
+        finished = await _record_answer_impl(
+            context, chat_id, answer_text, user_id, answer_message_id,
+            question_index,
+        )
+    if finished:
+        state = get_job_user_state(context.application, user_id)
+        await _finish_quiz(context, chat_id, state)
 
 
-async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_message_id) -> None:
+async def _record_answer_impl(
+    context, chat_id, answer_text, user_id, answer_message_id, question_index,
+) -> bool:
+    """Returns True when this answer completed the quiz — the caller then
+    runs the grace window + results outside the lock."""
     state = get_job_user_state(context.application, user_id)
 
     results = state.get("test_results", [])
@@ -208,18 +248,24 @@ async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_mes
         prev["answer"] = answer_text.strip()
         prev["correct"] = exact or fuzzy
         prev["fuzzy"] = fuzzy
-        return
+        return False
 
     if not state.get("test_active"):
-        return
+        return False
 
     quiz_items = state.get("test_quiz_items", [])
     current_index = state.get("test_current_index", 0)
     if current_index >= len(quiz_items):
-        return
+        return False
+    # Stale-timer guard, under the lock: an answer that beat the timer by
+    # milliseconds has already advanced the index by the time we get here.
+    if question_index is not None and current_index != question_index:
+        return False
     item = quiz_items[current_index]
 
     cancel_question_timer(context, user_id)
+    if answer_text == "(timed out)":
+        state["last_timeout_at"] = time.monotonic()
 
     if answer_message_id:
         try:
@@ -242,7 +288,10 @@ async def _record_answer_impl(context, chat_id, answer_text, user_id, answer_mes
     })
     state["test_results"] = results
     state["test_current_index"] = current_index + 1
+    if current_index + 1 >= len(quiz_items):
+        return True
     await send_next_question(context, chat_id, state, user_id)
+    return False
 
 
 # ============================================================================
@@ -305,6 +354,9 @@ async def _build_rank_line(session_repo, user_repo, chat_id, preferences) -> tup
 
 async def _show_test_results(context, chat_id, state) -> None:
     state["last_timeout_at"] = None
+    # Consumed here however the round ends — a failed reminder test must not
+    # leave the flag armed for the next ordinary test.
+    fresh_mind_pending = state.pop("fresh_mind_pending", None)
     exercise_key = state.get("test_exercise_type", "word_memo")
     exercise = ExerciseRegistry.get(exercise_key)
     exercise_enum = _exercise_enum(state)
@@ -473,10 +525,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                         # together with bot/reminders.py (lazy import — a
                         # top-level one would be a circular import).
                         fresh_xp = 0
-                        if (
-                            xp_award > 0 and round_mode == "test"
-                            and state.pop("fresh_mind_pending", None)
-                        ):
+                        if xp_award > 0 and round_mode == "test" and fresh_mind_pending:
                             from .reminders import claim_fresh_mind_bonus
                             fresh_xp = await claim_fresh_mind_bonus(
                                 user_repo, db_user, xp_award
@@ -635,7 +684,8 @@ async def start_retry_mistakes(query, context) -> None:
                 "shown_word": r["shown_word"], "expected": r["expected"],
             })
     else:
-        random.shuffle(wrong_results)
+        # Study order (top to bottom), same as the fresh round.
+        wrong_results.sort(key=lambda r: r["pair_index"])
         for r in wrong_results:
             idx = r["pair_index"]
             w1, w2 = last_pairs[idx]
@@ -731,9 +781,8 @@ async def start_reverse_quiz(query, context) -> None:
                     "shown_word": last_pairs[idx + 1], "expected": last_pairs[idx],
                 })
     else:
-        quiz_order = list(range(len(last_pairs)))
-        random.shuffle(quiz_order)
-        for idx in quiz_order:
+        # Study order (top to bottom), same as the fresh round.
+        for idx in range(len(last_pairs)):
             prev = result_by_pair.get(idx)
             w1, w2 = last_pairs[idx]
             if prev:

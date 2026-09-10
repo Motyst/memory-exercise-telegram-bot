@@ -24,8 +24,9 @@ from exercises.word_memorization import (
 )
 from .analytics import mark_round_start
 from .quiz_engine import (
-    cancel_question_timer, record_answer, start_quiz_after_timer,
-    start_retry_mistakes, start_reverse_quiz,
+    cancel_question_timer, cancel_study_timer, record_answer,
+    start_quiz_after_timer, start_retry_mistakes, start_reverse_quiz,
+    study_timer_name,
 )
 from .recent_words import get_recent_words, save_recent_words
 from .state import (
@@ -230,11 +231,14 @@ async def generate_word_memo(query, context, difficulty, count) -> None:
 # ============================================================================
 
 def _build_quiz_items(pairs):
-    """Build shuffled quiz items with a random word from each pair shown."""
-    quiz_order = list(range(len(pairs)))
-    random.shuffle(quiz_order)
+    """Build quiz items in study order, with a random word of each pair shown.
+
+    Questions follow the order the pairs were studied in (top to bottom) —
+    deliberate: recall should track the memorized sequence, not fight it.
+    Which side of the pair is shown stays random.
+    """
     quiz_items = []
-    for idx in quiz_order:
+    for idx in range(len(pairs)):
         w1, w2 = pairs[idx]
         if random.choice([True, False]):
             shown, expected = w1, w2
@@ -314,11 +318,14 @@ async def generate_word_memo_test(query, context, difficulty, count, round_mode:
     set_user_state(context, "test_study_message_id", query.message.message_id)
     track_bot_message(state, query.message.message_id)
 
+    # One countdown per user: a stale results-screen button tapped mid-study
+    # must replace the running countdown, not add a second one.
+    cancel_study_timer(context, query.from_user.id)
     context.job_queue.run_once(
         start_quiz_after_timer, when=countdown_seconds,
         chat_id=query.message.chat_id, user_id=query.from_user.id,
         data={"user_id": query.from_user.id},
-        name=f"quiz_timer_{query.from_user.id}",
+        name=study_timer_name(query.from_user.id),
     )
 
 

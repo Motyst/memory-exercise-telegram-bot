@@ -10,6 +10,7 @@ from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
+from telegram.helpers import escape_markdown
 
 from config import get_settings
 from database import (
@@ -76,8 +77,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     clear_user_state(context)
 
+    # Telegram names are free text — a "_" or "*" in one breaks legacy
+    # Markdown and the whole message fails to send.
+    name = escape_markdown(user.first_name or "", version=1)
     welcome_text = (
-        f"👋 Welcome to *Mental Training Bot*, {user.first_name}!\n\n"
+        f"👋 Welcome to *Mental Training Bot*, {name}!\n\n"
         "This bot helps you train your mind with various exercises.\n\n"
         "🧠 *Available Exercises:*\n"
     )
@@ -328,8 +332,9 @@ def _format_leaderboard(board: list[dict], viewer_telegram_id: int) -> str:
             marker = medals.get(rank, f"{rank}.")
             you = " ← you" if entry["telegram_id"] == viewer_telegram_id else ""
             streak = f" 🔥{entry['streak']}" if entry["streak"] else ""
+            name = escape_markdown(entry["name"], version=1)  # see start_command
             lines.append(
-                f"{marker} *{entry['name']}* — {entry['avg_pct']:.0f}% avg, "
+                f"{marker} *{name}* — {entry['avg_pct']:.0f}% avg, "
                 f"{entry['best_pct']:.0f}% best ({entry['tests']} tests){streak}{you}"
             )
     lines.append("\n_Only users who opt in are listed._")

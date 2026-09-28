@@ -122,7 +122,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "📝 *Training* — Study at your own pace\n"
         "🎯 *Test* — Study, then quiz (normal or ⚡ speed)\n"
         "🔀 *Reverse Quiz* — Re-quiz flipped\n\n"
-        f"⏱ {QUESTION_TIME_LIMIT}s per question · typos tolerated"
+        f"⏱ {QUESTION_TIME_LIMIT}s per question · typos tolerated\n\n"
+        # Usage disclosure — keep in sync with what bot/analytics.py records.
+        "🔒 *Your data:* the bot records your results, time spent per "
+        "exercise and which buttons you use, to track your progress and "
+        "improve training. The bot admin can see these stats. The content "
+        "of your messages is never stored."
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
 

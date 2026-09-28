@@ -169,8 +169,8 @@ work; render server-side, send as a photo.
 
 **Guardrail carried through all layers**: time is context, never rank. Ten
 focused minutes beat sixty idle ones, so the leaderboard stays on accuracy and
-no screen ever implies "more minutes = better". Also: one line in `/help` or
-the welcome text disclosing that usage is logged — cheap now, painful later.
+no screen ever implies "more minutes = better". Usage disclosure is live in
+`/help` ("🔒 Your data") — update it if L3/L4 start recording anything new.
 
 ## Parked ideas
 

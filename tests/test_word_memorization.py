@@ -1,21 +1,23 @@
 from exercises import Difficulty, ExerciseRegistry
 from exercises.word_memorization import (
-    NEXT_COUNT, _answer_note, get_placement_recommendation, is_fuzzy_match,
-    levenshtein_distance, should_offer_speed_run,
+    ANSWER_NOTE_MAX_CHARS, NEXT_COUNT, _answer_note, edit_distance,
+    get_placement_recommendation, is_fuzzy_match, should_offer_speed_run,
 )
 from bot.word_memo import _build_list_quiz_items, _build_quiz_items
 
 
 # ---- fuzzy matching --------------------------------------------------------
 
-def test_levenshtein_basics():
-    assert levenshtein_distance("", "abc") == 3
-    assert levenshtein_distance("kitten", "sitting") == 3
-    assert levenshtein_distance("same", "same") == 0
+def test_edit_distance_basics():
+    assert edit_distance("", "abc") == 3
+    assert edit_distance("kitten", "sitting") == 3
+    assert edit_distance("same", "same") == 0
+    assert edit_distance("stoen", "stone") == 1   # adjacent swap = 1 edit
 
 
 def test_fuzzy_accepts_typos_within_two_edits():
-    assert is_fuzzy_match("elephnat", "elephant")      # transposition = 2 edits
+    assert is_fuzzy_match("elephnat", "elephant")      # swap = 1 edit
+    assert is_fuzzy_match("elepant", "elephant")       # dropped letter
     assert is_fuzzy_match("  Elephant ", "elephant")   # case + whitespace
     assert not is_fuzzy_match("elefantt", "elephant")  # 3 edits
 
@@ -23,6 +25,21 @@ def test_fuzzy_accepts_typos_within_two_edits():
 def test_fuzzy_disabled_for_short_words():
     assert not is_fuzzy_match("cat", "cot")
     assert is_fuzzy_match("cat", "cat")
+
+
+def test_fuzzy_allows_one_edit_on_four_and_five_letter_words():
+    assert is_fuzzy_match("lamo", "lamp")
+    assert not is_fuzzy_match("lxmb", "lamp")    # 2 edits = half the word
+    assert is_fuzzy_match("stnoe", "stone")      # swap
+    assert not is_fuzzy_match("sotme", "stone")  # 2 edits
+
+
+def test_fuzzy_rejects_a_different_real_word():
+    # One edit away, but it's another word from the vocabulary — the user
+    # recalled the wrong thing, not mistyped the right one.
+    assert not is_fuzzy_match("house", "horse")
+    assert not is_fuzzy_match("stove", "stone")
+    assert is_fuzzy_match("horze", "horse")
 
 
 # ---- quiz item builders -----------------------------------------------------
@@ -72,8 +89,36 @@ def test_answer_note_wording():
     assert _answer_note({"correct": True, "answer": "x"}) == ""
     assert "_skipped_" in _answer_note({"correct": False, "answer": "(skipped)"})
     assert "_timed out_" in _answer_note({"correct": False, "answer": "(timed out)"})
-    assert "you said: _wrong_" in _answer_note({"correct": False, "answer": "wrong"})
+    assert "you said: wrong)" in _answer_note({"correct": False, "answer": "wrong"})
     assert "no answer" in _answer_note({"correct": False, "answer": ""})
+
+
+def test_answer_note_escapes_markdown_in_typed_answers():
+    # An unescaped "_" in a typed answer used to fail the whole results send.
+    note = _answer_note({"correct": False, "answer": "ice_cream *big* `x` [y"})
+    assert note == r"  (you said: ice\_cream \*big\* \`x\` \[y)"
+
+
+def test_answer_note_truncates_long_answers():
+    note = _answer_note({"correct": False, "answer": "a" * 500})
+    assert note.endswith("…)")
+    assert len(note) < ANSWER_NOTE_MAX_CHARS + 20
+
+
+def test_skip_button_carries_question_index():
+    ex = ExerciseRegistry.get("word_memo")
+    button = ex.get_skip_keyboard(question_index=3).inline_keyboard[0][0]
+    assert button.callback_data == "word_memo:skip:3"
+
+
+def test_word_pools_have_no_repeats():
+    # nouns + verbs share words ("answer", "bank"); verbs.json and
+    # adjectives.json repeat entries — a repeat inside one test makes a
+    # question with two right answers.
+    ex = ExerciseRegistry.get("word_memo")
+    for difficulty in Difficulty:
+        pool = ex._get_words_for_difficulty(difficulty)
+        assert len(pool) == len({w.lower() for w in pool}), difficulty
 
 
 # ---- generation -------------------------------------------------------------

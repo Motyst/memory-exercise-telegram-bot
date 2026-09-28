@@ -23,7 +23,7 @@ from .commands import (
     handle_settings_callback,
 )
 from .features import is_exercise_enabled
-from .quiz_engine import cancel_question_timer, record_answer
+from .quiz_engine import cancel_question_timer, cancel_study_timer, record_answer
 from .state import (
     get_user_state, set_user_state, clear_user_state,
     is_in_test_mode, cleanup_bot_messages,
@@ -80,9 +80,15 @@ async def start_exercise(query, context, exercise_type: str) -> None:
             ),
         )
         return
+    # Full reset, same as the main menu: this is reachable mid-test from any
+    # old menu message (/start, /exercises). Keeping the state left the quiz
+    # half-alive — test_active with no timer, so later typing was eaten as
+    # answers — and a pending study countdown still launched the quiz.
     cancel_question_timer(context, query.from_user.id)
+    cancel_study_timer(context, query.from_user.id)
     state = get_user_state(context)
     await cleanup_bot_messages(context.bot, query.message.chat_id, state)
+    clear_user_state(context)
     set_user_state(context, "current_exercise", exercise_type)
     kb = exercise.get_mode_keyboard()
     await query.edit_message_text(

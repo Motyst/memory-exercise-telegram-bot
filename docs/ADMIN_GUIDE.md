@@ -59,6 +59,9 @@ All knobs in `gamification/xp.py`, top of file:
 (`expected_challenge()` = 5 + 2.5/level). Tests below it earn proportionally
 less. Tests at/above it are "hard" — full XP + they build the streak bonus.
 So players must raise pairs / difficulty / speed to keep leveling.
+Only fresh tests move the hard streak: retry and reverse rounds leave it
+untouched (and get no streak bonus) — a small retry subset would otherwise
+always reset it, and a reverse would count one set twice.
 
 **Level curve**: `xp_for_next_level()` = 80 + 45·(level−1)^1.3.
 Reference (90% score): level 2 after ~2 easy tests; a 30-pair advanced test

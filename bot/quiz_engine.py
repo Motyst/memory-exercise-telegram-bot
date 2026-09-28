@@ -6,7 +6,8 @@ retry-mistakes / reverse-quiz rounds.
 Any exercise can reuse the engine by setting the test_* state keys plus
 test_exercise_type, providing format_test_prompt / get_skip_keyboard /
 format_test_results / get_results_keyboard on the exercise class, and adding
-its registry key to ENGINE_EXERCISE_ENUM below.
+its registry key to ENGINE_EXERCISE_ENUM below. get_skip_keyboard must put
+the question_index it is given into its callback ("<type>:skip:<index>").
 
 Word-memo remnants: progression suggestions and the placement branch in
 _show_test_results still call word-memo helpers directly. When a second
@@ -159,7 +160,9 @@ async def send_next_question(context, chat_id, state, user_id=None) -> None:
     )
     msg = await context.bot.send_message(
         chat_id=chat_id, text=prompt, parse_mode=ParseMode.MARKDOWN,
-        reply_markup=exercise.get_skip_keyboard(QUESTION_TIME_LIMIT),
+        reply_markup=exercise.get_skip_keyboard(
+            QUESTION_TIME_LIMIT, question_index=current_index,
+        ),
     )
     state["test_prompt_message_id"] = msg.message_id
     track_bot_message(state, msg.message_id)
@@ -352,6 +355,39 @@ async def _build_rank_line(session_repo, user_repo, chat_id, preferences) -> tup
 # Results pipeline
 # ============================================================================
 
+# Telegram's cap on one message, in UTF-16 code units. Measured on the raw
+# Markdown, which only over-counts (markers are stripped before Telegram
+# counts), so a chunk under it always sends.
+MAX_MESSAGE_LEN = 4096
+
+
+def _tg_len(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def split_message(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
+    """Split *text* at line breaks into chunks Telegram accepts.
+
+    A 100-pair results screen with many wrong answers runs past 4096 chars,
+    and an oversized send fails outright — the user saw no results at all.
+    Splitting on newlines is Markdown-safe because every results line opens
+    and closes its own entities.
+    """
+    chunks: list[str] = []
+    current: list[str] = []
+    size = 0
+    for line in text.split("\n"):
+        line_len = _tg_len(line) + 1  # + the newline it was split on
+        if current and size + line_len > limit:
+            chunks.append("\n".join(current))
+            current, size = [], 0
+        current.append(line)
+        size += line_len
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
 async def _show_test_results(context, chat_id, state) -> None:
     state["last_timeout_at"] = None
     # Consumed here however the round ends — a failed reminder test must not
@@ -511,13 +547,24 @@ async def _show_test_results(context, chat_id, state) -> None:
                         skill_repo = UserSkillRepository(session)
                         skill_row = await skill_repo.get_or_create(db_user.id, skill_code)
                         old_level = skill_row.level
+                        # The hard streak counts consecutive hard FRESH
+                        # tests. Repeat rounds on a memorized set neither
+                        # extend nor break it: a retry subset always rates
+                        # easy (it used to reset the streak to 0), and a
+                        # reverse would count the same set twice. Scored
+                        # from 0 so they get no streak bonus either.
+                        is_repeat_round = round_mode in ("retry", "reverse")
                         xp_res = compute_test_xp(
                             pairs=len(quiz_items),
                             difficulty=difficulty_value,
                             speed_mode=state.get("speed_mode", False),
                             score_pct=round_pct,
                             level=skill_row.level,
-                            hard_streak=skill_row.hard_streak,
+                            hard_streak=0 if is_repeat_round else skill_row.hard_streak,
+                        )
+                        new_hard_streak = (
+                            skill_row.hard_streak if is_repeat_round
+                            else xp_res.new_hard_streak
                         )
                         xp_award = round(xp_res.xp * xp_mult)
                         # ⚡ Fresh-mind bonus: test launched from a daily
@@ -535,7 +582,7 @@ async def _show_test_results(context, chat_id, state) -> None:
                         )
                         await skill_repo.add_xp(
                             db_user.id, skill_code, xp_award + fresh_xp,
-                            new_level, xp_res.new_hard_streak,
+                            new_level, new_hard_streak,
                         )
                         if xp_award > 0:
                             skill = SKILLS[skill_code]
@@ -647,8 +694,17 @@ async def _show_test_results(context, chat_id, state) -> None:
             kb_kwargs["offer_leaderboard_join"] = offer_join
         keyboard = exercise.get_results_keyboard(**kb_kwargs)
 
+    # Over-long results go out as several messages, buttons on the last.
+    # The leading parts are tracked so the next cleanup removes them along
+    # with the last one (which the next button tap edits in place).
+    chunks = split_message(results_text)
+    for chunk in chunks[:-1]:
+        msg = await context.bot.send_message(
+            chat_id=chat_id, text=chunk, parse_mode=ParseMode.MARKDOWN,
+        )
+        track_bot_message(state, msg.message_id)
     await context.bot.send_message(
-        chat_id=chat_id, text=results_text, parse_mode=ParseMode.MARKDOWN,
+        chat_id=chat_id, text=chunks[-1], parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard,
     )
 
@@ -659,6 +715,11 @@ async def _show_test_results(context, chat_id, state) -> None:
 
 async def start_retry_mistakes(query, context) -> None:
     state = get_user_state(context)
+    # Double tap / stale button: a round is already running. Checked before
+    # the first await — the first tap sets test_active synchronously, so a
+    # second tap can't bump test_retry_rounds and zero the retry's XP.
+    if state.get("test_active"):
+        return
     last_results = state.get("last_test_results", [])
     last_pairs = state.get("last_test_pairs", [])
     difficulty = state.get("test_difficulty", state.get("difficulty", Difficulty.BEGINNER))
@@ -736,6 +797,10 @@ async def start_retry_mistakes(query, context) -> None:
 async def start_reverse_quiz(query, context) -> None:
     """Re-quiz all pairs but with the shown/expected columns flipped."""
     state = get_user_state(context)
+    # Double tap / stale button — see start_retry_mistakes. A second tap
+    # here used to save the first reverse as "reverse_extra" (0 XP, unscored).
+    if state.get("test_active"):
+        return
     last_pairs = state.get("last_test_pairs", [])
     last_results = state.get("last_test_results", [])
     difficulty = state.get("test_difficulty", state.get("difficulty", Difficulty.BEGINNER))

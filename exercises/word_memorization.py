@@ -6,8 +6,10 @@ Supports Training mode (study only) and Test mode (study + quiz).
 
 import json
 import random
+from functools import lru_cache
 from pathlib import Path
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.helpers import escape_markdown
 
 from .base import BaseExercise, Difficulty, ExerciseResult
 from config import get_settings
@@ -26,41 +28,84 @@ SPEED_MODE_MULTIPLIER = 0.5
 # Per-question time limit in seconds
 QUESTION_TIME_LIMIT = 15
 
-# Maximum Levenshtein distance to accept as "close enough"
-FUZZY_MAX_DISTANCE = 2
+# Typo tolerance scales with word length: a short word has no room for two
+# typos before it is a different word ("lamp" -> "limb" is two edits).
+FUZZY_EXACT_MAX_LEN = 3   # words up to this long: exact match only
+FUZZY_SHORT_MAX_LEN = 5   # words up to this long: 1 edit
+FUZZY_MAX_DISTANCE = 2    # longer words: up to 2 edits
+
+DATA_DIR = Path(__file__).parent.parent / "data"
+WORD_FILES = ("concrete_nouns", "nouns", "verbs", "adjectives")
+
+
+# ============================================================================
+# Word data
+# ============================================================================
+
+@lru_cache(maxsize=1)
+def _read_word_files() -> dict[str, tuple[str, ...]]:
+    """Word lists by type, read once. A missing file loads as empty."""
+    words = {}
+    for word_type in WORD_FILES:
+        path = DATA_DIR / f"{word_type}.json"
+        if path.exists():
+            with open(path, encoding="utf-8") as f:
+                words[word_type] = tuple(json.load(f).get(word_type, []))
+        else:
+            words[word_type] = ()
+    return words
+
+
+@lru_cache(maxsize=1)
+def _vocabulary() -> frozenset[str]:
+    """Every word the exercise can show, lowercased."""
+    return frozenset(w.lower() for ws in _read_word_files().values() for w in ws)
 
 
 # ============================================================================
 # Fuzzy matching utility
 # ============================================================================
 
-def levenshtein_distance(s1: str, s2: str) -> int:
-    """Compute the Levenshtein (edit) distance between two strings."""
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-    if len(s2) == 0:
-        return len(s1)
-    prev_row = range(len(s2) + 1)
-    for i, c1 in enumerate(s1):
-        curr_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = prev_row[j + 1] + 1
-            deletions = curr_row[j] + 1
-            substitutions = prev_row[j] + (c1 != c2)
-            curr_row.append(min(insertions, deletions, substitutions))
-        prev_row = curr_row
-    return prev_row[-1]
+def edit_distance(s1: str, s2: str) -> int:
+    """Optimal-string-alignment distance: insert, delete, substitute, or swap
+    two adjacent letters — each costs 1. Plain Levenshtein charges a swap
+    ("stoen") as 2, which ate the whole budget of a short word."""
+    d = [[0] * (len(s2) + 1) for _ in range(len(s1) + 1)]
+    for i in range(len(s1) + 1):
+        d[i][0] = i
+    for j in range(len(s2) + 1):
+        d[0][j] = j
+    for i in range(1, len(s1) + 1):
+        for j in range(1, len(s2) + 1):
+            cost = s1[i - 1] != s2[j - 1]
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and s1[i - 1] == s2[j - 2] and s1[i - 2] == s2[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[-1][-1]
 
 
-def is_fuzzy_match(answer: str, expected: str, max_distance: int = FUZZY_MAX_DISTANCE) -> bool:
-    """Check if *answer* is close enough to *expected*."""
+def _fuzzy_allowance(length: int) -> int:
+    if length <= FUZZY_EXACT_MAX_LEN:
+        return 0
+    if length <= FUZZY_SHORT_MAX_LEN:
+        return 1
+    return FUZZY_MAX_DISTANCE
+
+
+def is_fuzzy_match(answer: str, expected: str) -> bool:
+    """Check if *answer* is *expected* give or take a typo."""
     a = answer.strip().lower()
     e = expected.strip().lower()
     if a == e:
         return True
-    if len(e) <= 3:
+    # A different real word is a wrong answer, not a typo: "house" for
+    # "horse" is one edit away but recalls the wrong thing.
+    if a in _vocabulary():
         return False
-    return levenshtein_distance(a, e) <= max_distance
+    allowed = _fuzzy_allowance(len(e))
+    if abs(len(a) - len(e)) > allowed:
+        return False
+    return edit_distance(a, e) <= allowed
 
 
 # ============================================================================
@@ -105,9 +150,18 @@ PROGRESSION_LADDER = True
 # "(you said: (skipped))" reads like the user typed it.
 _NON_ANSWERS = {"(skipped)": "_skipped_", "(timed out)": "_timed out_"}
 
+# Typed answers echoed on the results screen are cut to this length — one
+# pasted paragraph would otherwise push the message past Telegram's limit.
+ANSWER_NOTE_MAX_CHARS = 40
+
 
 def _answer_note(result: dict | None) -> str:
-    """Trailing note for one results line: what the user actually answered."""
+    """Trailing note for one results line: what the user actually answered.
+
+    The answer is free text, so it is escaped and shown outside any entity
+    (legacy Markdown can't escape inside one): a single "_" in an answer
+    used to fail the whole results message.
+    """
     if not result or result["correct"]:
         return ""
     answer = (result.get("answer") or "").strip()
@@ -115,7 +169,26 @@ def _answer_note(result: dict | None) -> str:
         return f"  ({_NON_ANSWERS[answer]})"
     if not answer:
         return "  (_no answer_)"
-    return f"  (you said: _{answer}_)"
+    if len(answer) > ANSWER_NOTE_MAX_CHARS:
+        answer = answer[:ANSWER_NOTE_MAX_CHARS].rstrip() + "…"
+    return f"  (you said: {escape_markdown(answer, version=1)})"
+
+
+def _dedupe(words: list[str]) -> list[str]:
+    """Drop repeated words (case-insensitive), keeping first-seen order.
+
+    The word files overlap ("answer" is both a noun and a verb) and repeat
+    entries inside a file; a word appearing twice in one test makes a
+    question with two right answers, of which only one is accepted.
+    """
+    seen: set[str] = set()
+    unique = []
+    for w in words:
+        key = w.lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(w)
+    return unique
 
 
 def should_offer_speed_run(count: int, score_pct: float, speed_mode: bool) -> bool:
@@ -143,34 +216,22 @@ class WordMemorizationExercise(BaseExercise):
         self._load_words()
 
     def _load_words(self):
-        data_dir = Path(__file__).parent.parent / "data"
-        word_files = {
-            "concrete_nouns": data_dir / "concrete_nouns.json",
-            "nouns": data_dir / "nouns.json",
-            "verbs": data_dir / "verbs.json",
-            "adjectives": data_dir / "adjectives.json",
-        }
-        for word_type, filepath in word_files.items():
-            if filepath.exists():
-                with open(filepath, "r") as f:
-                    data = json.load(f)
-                    self._words_cache[word_type] = data.get(word_type, [])
-            else:
-                self._words_cache[word_type] = []
+        self._words_cache = {k: list(v) for k, v in _read_word_files().items()}
 
     def _get_words_for_difficulty(self, difficulty: Difficulty) -> list[str]:
         if difficulty == Difficulty.BEGINNER:
             # Concrete, well-known objects only — easiest to visualize.
             # Fall back to the full noun list if the file is missing.
-            return self._words_cache.get("concrete_nouns") or self._words_cache.get("nouns", [])
+            words = self._words_cache.get("concrete_nouns") or self._words_cache.get("nouns", [])
         elif difficulty == Difficulty.INTERMEDIATE:
-            return self._words_cache.get("nouns", []) + self._words_cache.get("verbs", [])
+            words = self._words_cache.get("nouns", []) + self._words_cache.get("verbs", [])
         else:
-            return (
+            words = (
                 self._words_cache.get("nouns", [])
                 + self._words_cache.get("verbs", [])
                 + self._words_cache.get("adjectives", [])
             )
+        return _dedupe(words)
 
     # ========================================================================
     # Messages
@@ -286,9 +347,16 @@ class WordMemorizationExercise(BaseExercise):
         """Count keyboard for training mode (back goes to difficulty, not speed)."""
         return self._build_count_keyboard("back_to_diff", fmt)
 
-    def get_skip_keyboard(self, seconds_left: int = QUESTION_TIME_LIMIT) -> InlineKeyboardMarkup:
+    def get_skip_keyboard(
+        self, seconds_left: int = QUESTION_TIME_LIMIT, question_index: int | None = None,
+    ) -> InlineKeyboardMarkup:
+        """*question_index* rides in the callback so a double-tapped or stale
+        Skip only ever skips the question it was shown on."""
+        data = f"{self.exercise_type}:skip"
+        if question_index is not None:
+            data += f":{question_index}"
         return InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"⏭ Skip ({seconds_left}s left)", callback_data=f"{self.exercise_type}:skip")
+            InlineKeyboardButton(f"⏭ Skip ({seconds_left}s left)", callback_data=data)
         ]])
 
     def get_results_keyboard(

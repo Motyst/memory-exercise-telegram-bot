@@ -306,7 +306,19 @@ async def _finish_passive(query, context, exercise) -> None:
 
 async def _record_distractions(query, context, exercise, parts: list[str]) -> None:
     state = _state(context)
-    story_id = state.get("audio_story_id")
+    # Double tap on the focus-check buttons: the first tap already saved the
+    # listen and paid its XP. Ignore it silently — a "Session expired" edit
+    # here could land after (and overwrite) the first tap's completion text.
+    if state.get("audio_dist_msg_id") == query.message.message_id:
+        return
+
+    try:
+        label = DISTRACTION_OPTIONS[int(parts[2])]
+    except (IndexError, ValueError):
+        return
+
+    # Claimed before the first await so a concurrent second tap sees it gone.
+    story_id = state.pop("audio_story_id", None)
     bucket = state.get("audio_bucket", "?")
     if not story_id:
         await query.edit_message_text(
@@ -314,11 +326,7 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
             reply_markup=exercise.get_completion_keyboard(),
         )
         return
-
-    try:
-        label = DISTRACTION_OPTIONS[int(parts[2])]
-    except (IndexError, ValueError):
-        return
+    state["audio_dist_msg_id"] = query.message.message_id
 
     xp_lines: list[str] = []
     try:
@@ -337,7 +345,6 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
     except Exception as e:
         logger.exception(f"Failed to save audio session: {e}")
 
-    state.pop("audio_story_id", None)
     if label == "0":
         focus_note = "Zero drift — deep focus. That's the goal state."
     else:
@@ -361,15 +368,15 @@ async def _record_distractions(query, context, exercise, parts: list[str]) -> No
 async def _start_quiz(query, context) -> None:
     state = _state(context)
     questions = state.get("audio_questions") or []
+    if state.get("audio_quiz_items"):
+        return  # double tap — the first tap already started this quiz
     if not state.get("audio_story_id") or not questions:
         await query.edit_message_text("Session expired. Start a new story!")
         return
 
-    # Delete the audio message so answers come from memory, not re-listening
-    # (same anti-cheat idea as deleting typed answers in word-memo tests).
-    await _delete_audio_message(context, query.message.chat_id, state)
-
     # Shuffle each question's options once, remapping the correct index.
+    # Done before the first await: a double tap must not reshuffle, or the
+    # buttons on screen and the answer key in state can disagree.
     items = []
     for q in questions:
         order = list(range(len(q["options"])))
@@ -383,6 +390,9 @@ async def _start_quiz(query, context) -> None:
     state["audio_quiz_index"] = 0
     state["audio_quiz_results"] = []
 
+    # Delete the audio message so answers come from memory, not re-listening
+    # (same anti-cheat idea as deleting typed answers in word-memo tests).
+    await _delete_audio_message(context, query.message.chat_id, state)
     await _send_quiz_question(query, state)
 
 

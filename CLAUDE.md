@@ -23,7 +23,7 @@ without asking.
 - **`_IS_SCORED_TEST` (repositories) is duplicated in pandas in `dashboard.py`** — change one and the other silently disagrees.
 - **`RANK_MIN_TESTS` in `bot/quiz_engine.py` must match the leaderboard query's `min_tests`.**
 - **Never rename an achievement `code`** — unlocks are stored by code.
-- **Anti-farm rules are intentional**: retry rounds = subset XP then 0 on 2nd+; first reverse ×0.5, `reverse_extra` = 0 XP; retry/reverse_extra/placement excluded from stats/leaderboard/PB/achievements; replayed audio stories earn 0 XP; 80 audio XP/day cap.
+- **Anti-farm rules are intentional**: retry rounds = subset XP then 0 on 2nd+; first reverse ×0.5, `reverse_extra` = 0 XP; retry/reverse_extra/placement excluded from stats/leaderboard/PB/achievements; retry/reverse rounds never touch the hard streak; replayed audio stories earn 0 XP; 80 audio XP/day cap.
 - **Results screens carry no praise line and no progression-suggestion text** — removed on purpose; the ⬆️ Level up / ⚡ Speed run buttons do that job.
 - **Users only ever see *training* time.** Reconstructed "time in bot" is admin-side only; the leaderboard stays on accuracy — time is context, never rank.
 - **Passive audio listens don't count a streak** (audio quiz does).
@@ -114,7 +114,7 @@ prefix (`word_memo`, `audio_viz`, `lb`, `menu`, `settings`, `placement`,
 
 ## Features (summary — detail in `docs/FEATURES.md`)
 
-- **Word Memorization** — formats Pairs / Word List; Training or Test mode; 3 difficulties; 5–100 items; per-question timer + grace window; fuzzy matching (Levenshtein ≤2); results at end only (+ compact toggle, leaderboard standing); Retry Mistakes, Reverse quiz, Placement test, Level-up / Speed-run buttons, personal bests, anti-repeat, daily streak, daily sprint challenge.
+- **Word Memorization** — formats Pairs / Word List; Training or Test mode; 3 difficulties; 5–100 items; per-question timer + grace window; fuzzy matching (length-scaled typo allowance, real-word answers rejected); results at end only (+ compact toggle, leaderboard standing); Retry Mistakes, Reverse quiz, Placement test, Level-up / Speed-run buttons, personal bests, anti-repeat, daily streak, daily sprint challenge.
 - **Audio Visualization** — narrated story .mp3 the user visualizes; passive by design, optional detail quiz as proxy score. Two flags, both default OFF (`/admin audio`, `/admin audioquiz`). Library rescanned live from `data/audio/`. Fully self-contained → clean removal.
 - **Access codes** (`bot/redeem.py`) — one-time `MTB-XXXX-XXXX` codes set subscription tier; the Skool↔Telegram data link. Tiers not enforced anywhere yet.
 - **Daily reminders** (`bot/reminders.py`) — per-user opt-in, hourly sweep, one-tap ping button with last-used settings, ×1.25 fresh-mind XP within 15 min.

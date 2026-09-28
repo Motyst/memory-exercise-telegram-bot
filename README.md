@@ -13,7 +13,7 @@ for a mental-training community.
 - **Difficulty**: Beginner (everyday concrete nouns) | Intermediate (all nouns + verbs) | Advanced (+adjectives)
 - **Counts**: 5, 10, 15, 20, 30, 50, 75, 100
 - Per-question timer with auto-skip, plus a 2s grace window for answers typed just after a timeout
-- Fuzzy matching (Levenshtein ≤2 edits, disabled for short words)
+- Fuzzy matching (typo allowance scales with word length; swapped letters = 1 edit; a different real word is never accepted)
 - Retry Mistakes, Reverse quiz (columns flipped), one-tap level-up to the next size
 - Speed mode — normal (5s/pair) or fast (2.5s/pair) study time
 - Placement test for new users — one 2-minute calibration round recommends a starting level

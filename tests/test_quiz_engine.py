@@ -7,9 +7,11 @@ races reproducible.
 
 import asyncio
 
+from database import UserRepository, UserSkillRepository, get_session
 from exercises import Difficulty
 from bot import quiz_engine as qe
-from bot.word_memo import generate_word_memo_test
+from bot.handlers import start_exercise
+from bot.word_memo import generate_word_memo_test, handle_word_memo_callback
 from tests.conftest import fresh_telegram_id
 from tests.fakes import FakeBot, FakeContext, FakeQuery
 
@@ -127,6 +129,36 @@ async def test_fresh_mind_flag_is_consumed_even_when_no_xp():
     assert "fresh_mind_pending" not in st
 
 
+def test_split_message_keeps_lines_whole_and_under_limit():
+    text = "\n".join(f"{i}. *word{i}* — pair{i}  ❌  (you said: nope)" for i in range(300))
+    chunks = qe.split_message(text)
+    assert len(chunks) > 1
+    assert all(qe._tg_len(c) <= qe.MAX_MESSAGE_LEN for c in chunks)
+    assert "\n".join(chunks) == text
+    assert qe.split_message("short") == ["short"]
+
+
+async def test_oversized_results_are_split_across_messages():
+    # 100 pairs, every answer wrong: ~5400 chars as one message, which
+    # Telegram rejects — the user used to get no results screen at all.
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    pairs = [(f"anthropologist{i}", f"differentiate{i}") for i in range(100)]
+    results = [
+        _answered(i, a, b, "somethingelse", correct=False)
+        for i, (a, b) in enumerate(pairs)
+    ]
+    st = _two_question_state(100, results)
+    st["test_pairs"] = pairs
+    ctx.state = st
+    await qe._show_test_results(ctx, uid, st)
+    assert len(ctx.bot.sent) >= 2
+    assert all(qe._tg_len(t) <= qe.MAX_MESSAGE_LEN for t in ctx.bot.sent)
+    assert "Score: *0/100*" in ctx.bot.sent[0]
+    # Leading parts are tracked for cleanup; the last one keeps the buttons.
+    assert len(st["bot_message_ids"]) == len(ctx.bot.sent) - 1
+
+
 async def test_only_one_study_timer_survives_double_start():
     uid = fresh_telegram_id()
     ctx = FakeContext(uid)
@@ -182,5 +214,99 @@ async def test_reverse_round_flips_columns_and_throttles_second_time():
     st = ctx.state
     assert st["test_quiz_items"][0] == {"pair_index": 0, "shown_word": "b", "expected": "a"}
     assert st["test_round_mode"] == "reverse"
+    st["test_active"] = False   # first reverse finished
     await qe.start_reverse_quiz(FakeQuery(uid), ctx)
     assert ctx.state["test_round_mode"] == "reverse_extra"
+
+
+# ---- double taps & stale buttons -------------------------------------------
+
+async def test_double_tapped_reverse_starts_one_scored_round():
+    # The second tap used to bump the counter too, saving the FIRST reverse
+    # as reverse_extra: 0 XP and excluded from stats.
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    ctx.state = {
+        "test_format": "pairs", "test_difficulty": Difficulty.BEGINNER,
+        "last_test_pairs": [("a", "b")],
+        "last_test_results": [_answered(0, "a", "b", "b")],
+        "test_reverse_rounds": 0,
+    }
+    await asyncio.gather(
+        qe.start_reverse_quiz(FakeQuery(uid), ctx),
+        qe.start_reverse_quiz(FakeQuery(uid), ctx),
+    )
+    assert ctx.state["test_round_mode"] == "reverse"
+    assert ctx.state["test_reverse_rounds"] == 1
+    assert sum("Question 1/1" in t for t in ctx.bot.sent) == 1
+
+
+async def test_double_tapped_retry_keeps_its_xp():
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    ctx.state = {
+        "test_format": "pairs", "test_difficulty": Difficulty.BEGINNER,
+        "last_test_pairs": [("a", "b"), ("c", "d")],
+        "last_test_results": [
+            _answered(0, "a", "b", "b"),
+            _answered(1, "c", "d", "x", correct=False),
+        ],
+    }
+    await asyncio.gather(
+        qe.start_retry_mistakes(FakeQuery(uid), ctx),
+        qe.start_retry_mistakes(FakeQuery(uid), ctx),
+    )
+    assert ctx.state["test_retry_rounds"] == 1   # 2 would mean 0 XP
+
+
+async def test_stale_or_double_skip_only_skips_its_own_question():
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    ctx.state = _two_question_state(0, [])
+    await qe.send_next_question(ctx, uid, ctx.state, uid)       # Q1 live
+    q = FakeQuery(uid)
+    await handle_word_memo_callback(q, ctx, "word_memo:skip:0")  # skips Q1
+    await handle_word_memo_callback(q, ctx, "word_memo:skip:0")  # double tap
+    st = ctx.state
+    assert [r["answer"] for r in st["test_results"]] == ["(skipped)"]
+    assert st["test_current_index"] == 1 and st["test_active"] is True
+    # The stale tap must not have cancelled Q2's timer either.
+    assert len(ctx.job_queue.live("question_timer_")) == 1
+
+
+async def test_exercise_button_mid_test_fully_resets():
+    # Reachable from any old /start or /exercises menu during a test.
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    ctx.state = {"format": "pairs", "speed_mode": False}
+    await generate_word_memo_test(FakeQuery(uid), ctx, Difficulty.BEGINNER, 5)
+    assert ctx.job_queue.live("quiz_timer_")
+    await start_exercise(FakeQuery(uid), ctx, "word_memo")
+    assert ctx.state == {"current_exercise": "word_memo"}
+    assert not ctx.job_queue.live("quiz_timer_")
+    assert not ctx.job_queue.live("question_timer_")
+
+
+# ---- XP --------------------------------------------------------------------
+
+async def test_retry_round_leaves_hard_streak_alone():
+    # A retry subset always rates "easy"; it used to reset the streak to 0.
+    uid = fresh_telegram_id()
+    async with get_session() as s:
+        user, _ = await UserRepository(s).get_or_create(telegram_id=uid, first_name="t")
+        skill = await UserSkillRepository(s).get_or_create(user.id, "mnemonics")
+        skill.hard_streak = 4
+    ctx = FakeContext(uid)
+    st = _two_question_state(2, [
+        _answered(0, "apple", "river", "river"),
+        _answered(1, "candle", "stone", "stone"),
+    ])
+    st["test_round_mode"] = "retry"
+    st["test_retry_rounds"] = 1
+    ctx.state = st
+    await qe._show_test_results(ctx, uid, st)
+    async with get_session() as s:
+        user = await UserRepository(s).get_by_telegram_id(uid)
+        skill = await UserSkillRepository(s).get_or_create(user.id, "mnemonics")
+        assert skill.hard_streak == 4
+        assert skill.xp > 0   # the retry still paid its subset XP

@@ -182,8 +182,16 @@ async def handle_word_memo_callback(query, context, data: str) -> None:
         )
 
     elif action == "skip":
-        cancel_question_timer(context, query.from_user.id)
-        await record_answer(context, query.message.chat_id, "(skipped)")
+        # word_memo:skip:<question index>. The engine applies the skip only
+        # if that question is still the current one (same guard as the
+        # timeout), so a double tap can't skip the next question too. No
+        # timer cancel here: the engine cancels once the skip is accepted —
+        # cancelling first would kill the live question's timer on a stale tap.
+        await record_answer(
+            context, query.message.chat_id, "(skipped)",
+            user_id=query.from_user.id,
+            question_index=int(value) if value is not None else None,
+        )
 
     elif action == "retry_mistakes":
         await start_retry_mistakes(query, context)

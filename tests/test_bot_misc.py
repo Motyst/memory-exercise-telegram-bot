@@ -1,20 +1,22 @@
 """Handlers, rendering, analytics, reminders, version — the small pieces."""
 
+import asyncio
 from datetime import timedelta
 
 from telegram import Update
 from telegram.error import BadRequest, Forbidden, TimedOut
 
-from bot import analytics
+from bot import analytics, audio_viz
 from bot.commands import _format_achievements, _format_leaderboard
 from bot.handlers import error_handler
 from bot.reminders import _within_window, claim_fresh_mind_bonus
 from bot.version import format_changes, format_version, get_build_info
-from database import UserRepository, get_session
+from database import ExerciseSessionRepository, UserRepository, get_session
 from database.models import utcnow
+from exercises import ExerciseRegistry
 from gamification import ACHIEVEMENTS
 from tests.conftest import fresh_telegram_id
-from tests.fakes import FakeBot, FakeContext
+from tests.fakes import FakeBot, FakeContext, FakeQuery
 
 
 # ---- markdown safety ------------------------------------------------------
@@ -34,6 +36,43 @@ def test_achievements_listing_counts_unlocked():
     assert f"1/{len(ACHIEVEMENTS)}" in text
     assert f"*{first.name}* ✅" in text
     assert text.count("🔒") == len(ACHIEVEMENTS) - 1
+
+
+# ---- audio double taps -------------------------------------------------------
+
+async def test_double_tapped_focus_check_saves_one_listen():
+    # The second tap used to save a second session and pay XP twice.
+    uid = fresh_telegram_id()
+    async with get_session() as s:
+        await UserRepository(s).get_or_create(telegram_id=uid, first_name="t")
+    ctx = FakeContext(uid)
+    ctx.state = {"audio_story_id": "1min/test_story", "audio_bucket": "1min"}
+    q = FakeQuery(uid)
+    ex = ExerciseRegistry.get("audio_viz")
+    parts = ["audio_viz", "dist", "0"]
+    await asyncio.gather(
+        audio_viz._record_distractions(q, ctx, ex, parts),
+        audio_viz._record_distractions(q, ctx, ex, parts),
+    )
+    assert len(q.edits) == 1 and "Story complete" in q.edits[0]
+    async with get_session() as s:
+        user = await UserRepository(s).get_by_telegram_id(uid)
+        rows = await ExerciseSessionRepository(s).get_user_sessions(user.id)
+    assert len(rows) == 1
+
+
+async def test_double_tapped_audio_quiz_start_shuffles_once():
+    # Two shuffles could leave the on-screen buttons and the answer key in
+    # state disagreeing.
+    uid = fresh_telegram_id()
+    ctx = FakeContext(uid)
+    ctx.state = {
+        "audio_story_id": "1min/test_story", "audio_bucket": "1min",
+        "audio_questions": [{"q": "Color?", "options": ["a", "b", "c", "d"], "answer": 1}],
+    }
+    q = FakeQuery(uid)
+    await asyncio.gather(audio_viz._start_quiz(q, ctx), audio_viz._start_quiz(q, ctx))
+    assert len(q.edits) == 1
 
 
 # ---- error handler ----------------------------------------------------------
